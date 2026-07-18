@@ -35,7 +35,10 @@ var _slot_counts: Array[Label] = []
 @onready var _health_label: Label = $Backdrop/Column/HealthLabel
 @onready var _health_bar: ProgressBar = $Backdrop/Column/HealthBar
 @onready var _tool_label: Label = $Backdrop/Column/ToolLabel
-@onready var _hotbar: HBoxContainer = $Backdrop/Column/Hotbar
+## The hotbar row lives in its OWN bottom-center anchor (Minecraft-style), separate from the
+## top-left health/tool Backdrop. A CenterContainer anchored to the bottom edge keeps it
+## horizontally centered and re-centers automatically on window resize -- no manual math.
+@onready var _hotbar: HBoxContainer = $HotbarAnchor/HotbarPanel/Hotbar
 
 
 ## Point the HUD at the live player: store the ref, subscribe to the health damage EVENT,

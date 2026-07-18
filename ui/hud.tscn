@@ -1,6 +1,17 @@
-[gd_scene load_steps=2 format=3]
+[gd_scene load_steps=3 format=3]
 
 [ext_resource type="Script" path="res://ui/hud.gd" id="1_hud"]
+
+[sub_resource type="StyleBoxFlat" id="StyleBoxFlat_hotbar"]
+bg_color = Color(0.08, 0.08, 0.1, 0.55)
+content_margin_left = 6.0
+content_margin_top = 6.0
+content_margin_right = 6.0
+content_margin_bottom = 6.0
+corner_radius_top_left = 6
+corner_radius_top_right = 6
+corner_radius_bottom_right = 6
+corner_radius_bottom_left = 6
 
 [node name="HUD" type="CanvasLayer"]
 script = ExtResource("1_hud")
@@ -9,7 +20,7 @@ script = ExtResource("1_hud")
 offset_left = 12.0
 offset_top = 12.0
 offset_right = 220.0
-offset_bottom = 132.0
+offset_bottom = 100.0
 
 [node name="Column" type="VBoxContainer" parent="Backdrop"]
 theme_override_constants/separation = 6
@@ -25,5 +36,18 @@ value = 5.0
 [node name="ToolLabel" type="Label" parent="Backdrop/Column"]
 text = "Unarmed"
 
-[node name="Hotbar" type="HBoxContainer" parent="Backdrop/Column"]
+[node name="HotbarAnchor" type="CenterContainer" parent="."]
+anchor_left = 0.0
+anchor_top = 1.0
+anchor_right = 1.0
+anchor_bottom = 1.0
+offset_left = 0.0
+offset_top = -66.0
+offset_right = 0.0
+offset_bottom = -14.0
+
+[node name="HotbarPanel" type="PanelContainer" parent="HotbarAnchor"]
+theme_override_styles/panel = SubResource("StyleBoxFlat_hotbar")
+
+[node name="Hotbar" type="HBoxContainer" parent="HotbarAnchor/HotbarPanel"]
 theme_override_constants/separation = 4
