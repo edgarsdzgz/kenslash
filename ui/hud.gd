@@ -27,6 +27,10 @@ var _health: HealthComponent = null
 ## the per-frame refresh) can read a slot's glyph/highlight by index.
 var _slot_panels: Array[ColorRect] = []
 var _slot_labels: Array[Label] = []
+## Parallel to _slot_labels: a small bottom-right count label per slot, showing a stack's
+## count when > 1 (blank for a single item or an empty slot). Kept separate from the glyph
+## label so slot_glyph_at() stays the pure glyph (S/A/P/W) the existing tests assert.
+var _slot_counts: Array[Label] = []
 
 @onready var _health_label: Label = $Backdrop/Column/HealthLabel
 @onready var _health_bar: ProgressBar = $Backdrop/Column/HealthBar
@@ -96,8 +100,11 @@ func _refresh_hotbar() -> void:
 	var inv: Inventory = _player.inventory
 	var equipped: int = inv.equipped_index
 	for i in range(_slot_panels.size()):
-		var tool: ToolData = inv.slots[i] if i < inv.slots.size() else null
-		_slot_labels[i].text = _slot_glyph(tool)
+		var item: ItemData = inv.item_at(i)
+		var count: int = inv.count_at(i)
+		_slot_labels[i].text = _slot_glyph(item)
+		# Show the count only for a real stack (> 1); a single item or empty slot is blank.
+		_slot_counts[i].text = str(count) if count > 1 else ""
 		_slot_panels[i].color = HIGHLIGHT_COLOR if i == equipped else SLOT_COLOR
 
 
@@ -108,6 +115,7 @@ func _build_hotbar() -> void:
 		child.queue_free()
 	_slot_panels.clear()
 	_slot_labels.clear()
+	_slot_counts.clear()
 	var count: int = _player.inventory.hotbar_size()
 	for _i in range(count):
 		var panel: ColorRect = ColorRect.new()
@@ -118,16 +126,27 @@ func _build_hotbar() -> void:
 		label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
 		label.set_anchors_preset(Control.PRESET_FULL_RECT)
 		panel.add_child(label)
+		# A second small label pinned bottom-right for a stack's count (blank unless > 1).
+		# Separate widget so the glyph label stays the pure glyph the tests read.
+		var count_label: Label = Label.new()
+		count_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
+		count_label.vertical_alignment = VERTICAL_ALIGNMENT_BOTTOM
+		count_label.set_anchors_preset(Control.PRESET_FULL_RECT)
+		panel.add_child(count_label)
 		_hotbar.add_child(panel)
 		_slot_panels.append(panel)
 		_slot_labels.append(label)
+		_slot_counts.append(count_label)
 
 
-## Short glyph for a slot: the tool's first letter, or "" for an empty slot.
-func _slot_glyph(tool: ToolData) -> String:
-	if tool == null:
+## Short glyph for a slot: "" for an empty slot; the item's explicit glyph when it has one
+## (resources pin W/S); otherwise the display_name's first letter (tools -> S/A/P).
+func _slot_glyph(item: ItemData) -> String:
+	if item == null:
 		return ""
-	return tool.display_name.substr(0, 1)
+	if item.glyph != "":
+		return item.glyph
+	return item.display_name.substr(0, 1)
 
 
 # --- Read-only presentation queries (for the headless HUD test) -----------------------
@@ -148,6 +167,16 @@ func slot_glyph_at(i: int) -> String:
 	if i < 0 or i >= _slot_labels.size():
 		return ""
 	return _slot_labels[i].text
+
+
+## The count currently SHOWN in slot `i`'s count label (0 when blank -- a single item or an
+## empty slot -- or out of range). Reads the rendered text so it mirrors exactly what a
+## player sees, not the raw inventory count.
+func slot_count_at(i: int) -> int:
+	if i < 0 or i >= _slot_counts.size():
+		return 0
+	var text: String = _slot_counts[i].text
+	return int(text) if text != "" else 0
 
 
 ## Index of the (first) slot currently painted with HIGHLIGHT_COLOR, or -1 if none.

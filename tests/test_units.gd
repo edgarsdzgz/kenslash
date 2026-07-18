@@ -73,9 +73,9 @@ func _inventory_unit_tests(ctx: TestContext) -> void:
 	var added_axe: bool = inv.add_tool(Player.AXE_DATA)
 	var added_pick: bool = inv.add_tool(Player.PICKAXE_DATA)
 	ctx.check(added_sword and added_axe and added_pick
-			and inv.slots[0] == Player.SWORD_DATA and inv.slots[1] == Player.AXE_DATA
-			and inv.slots[2] == Player.PICKAXE_DATA
-			and inv.slots[3] == null and inv.slots[4] == null and inv.slots[5] == null,
+			and inv.item_at(0) == Player.SWORD_DATA and inv.item_at(1) == Player.AXE_DATA
+			and inv.item_at(2) == Player.PICKAXE_DATA
+			and inv.item_at(3) == null and inv.item_at(4) == null and inv.item_at(5) == null,
 		"add_tool fills first-empty in priority order (sword,axe,pickaxe -> slots 0-2; 3-5 empty)",
 		"add_tool ordering wrong: " + str(inv.slots))
 
@@ -176,6 +176,51 @@ func _inventory_unit_tests(ctx: TestContext) -> void:
 	ctx.check(jump_inv.equipped_index == 4,
 		"equip_index(4) lands on 4 while UNLOCKED (direct jump ignores lock either way)",
 		"equip_index(4) while unlocked wrong (got " + str(jump_inv.equipped_index) + ")")
+
+	# --- E1b item model: stacking, overflow, tool non-stacking, equip gating ---------
+	var WOOD: ItemData = load("res://data/wood.tres")
+	ctx.check(WOOD != null and WOOD.max_stack == 64 and WOOD.glyph == "W",
+		"wood.tres loads as ItemData (max_stack 64, glyph W)",
+		"wood.tres wrong (item=" + str(WOOD) + ")")
+
+	# Resource stacking: 10 then 60 wood -> slot0 count 64, slot1 count 6, two occupied.
+	var stack_inv: Inventory = Inventory.new()
+	var wood_first: int = stack_inv.add_item(WOOD, 10)
+	var wood_second: int = stack_inv.add_item(WOOD, 60)
+	ctx.check(wood_first == 0 and wood_second == 0
+			and stack_inv.count_at(0) == 64 and stack_inv.item_at(0) == WOOD
+			and stack_inv.count_at(1) == 6 and stack_inv.item_at(1) == WOOD
+			and stack_inv.count_at(2) == 0,
+		"add_item stacks wood: 10 then 60 -> slot0=64, slot1=6, two occupied, both returns 0",
+		"wood stacking wrong (r1=" + str(wood_first) + " r2=" + str(wood_second)
+			+ " c0=" + str(stack_inv.count_at(0)) + " c1=" + str(stack_inv.count_at(1)) + ")")
+
+	# Overflow: a 6-slot inventory holds 6*64=384 wood; adding 400 into a fresh one
+	# spills 16 back as the returned remainder.
+	var overflow_inv: Inventory = Inventory.new()
+	var overflow: int = overflow_inv.add_item(WOOD, 400)
+	ctx.check(overflow == 16 and overflow_inv.count_at(5) == 64,
+		"add_item overflow: 400 wood into 6 slots (cap 384) returns 16, last slot full",
+		"wood overflow wrong (remainder=" + str(overflow) + " c5=" + str(overflow_inv.count_at(5)) + ")")
+
+	# Tools never merge: two swords land in two separate single-count slots.
+	var tool_inv: Inventory = Inventory.new()
+	var t1: int = tool_inv.add_item(Player.SWORD_DATA, 1)
+	var t2: int = tool_inv.add_item(Player.SWORD_DATA, 1)
+	ctx.check(t1 == 0 and t2 == 0
+			and tool_inv.item_at(0) == Player.SWORD_DATA and tool_inv.count_at(0) == 1
+			and tool_inv.item_at(1) == Player.SWORD_DATA and tool_inv.count_at(1) == 1,
+		"add_item never merges tools: two swords -> two separate slots, count 1 each",
+		"tool non-stacking wrong (c0=" + str(tool_inv.count_at(0)) + " c1=" + str(tool_inv.count_at(1)) + ")")
+
+	# Equip gating: a resource stack in the equipped slot is NOT a weapon --
+	# equipped_tool() returns null (unarmed) while equipped_item() returns the resource.
+	var gate_inv: Inventory = Inventory.new()
+	gate_inv.add_item(WOOD, 5)
+	gate_inv.equip_index(0)
+	ctx.check(gate_inv.equipped_item() == WOOD and gate_inv.equipped_tool() == null,
+		"equip gating: a resource stack -> equipped_item() is the item, equipped_tool() is null (unarmed)",
+		"equip gating wrong (item=" + str(gate_inv.equipped_item()) + " tool=" + str(gate_inv.equipped_tool()) + ")")
 
 
 func _chunk_unit_tests(ctx: TestContext) -> void:
@@ -278,4 +323,4 @@ func _entries_equal(a: Array[Dictionary], b: Array[Dictionary]) -> bool:
 			return false
 	return true
 
-# Verified against: Godot 4.7.1 (2026-07-17)
+# Verified against: Godot 4.7.1 (2026-07-18)

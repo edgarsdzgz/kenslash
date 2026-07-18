@@ -165,11 +165,11 @@ func run(ctx: TestContext) -> void:
 	# --- r. Inventory & hotbar integration on the REAL player (design-inventory.md):
 	# auto-populate order at _ready(), equip-by-index driving the Sword Hitbox via
 	# _apply_equipped(), and the unarmed fallback when the equipped slot is empty.
-	ctx.check(player.inventory.slots[0] == Player.SWORD_DATA
-			and player.inventory.slots[1] == Player.AXE_DATA
-			and player.inventory.slots[2] == Player.PICKAXE_DATA
-			and player.inventory.slots[3] == null and player.inventory.slots[4] == null
-			and player.inventory.slots[5] == null,
+	ctx.check(player.inventory.item_at(0) == Player.SWORD_DATA
+			and player.inventory.item_at(1) == Player.AXE_DATA
+			and player.inventory.item_at(2) == Player.PICKAXE_DATA
+			and player.inventory.item_at(3) == null and player.inventory.item_at(4) == null
+			and player.inventory.item_at(5) == null,
 		"player auto-populated at _ready(): sword,axe,pickaxe -> slots 0-2; 3-5 empty",
 		"player inventory auto-populate order wrong: " + str(player.inventory.slots))
 
@@ -243,4 +243,4 @@ func run(ctx: TestContext) -> void:
 
 	player.input_override = null  # release the seam back to real input
 
-# Verified against: Godot 4.7.1 (2026-07-17)
+# Verified against: Godot 4.7.1 (2026-07-18)

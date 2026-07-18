@@ -1,0 +1,25 @@
+class_name ItemData
+extends Resource
+## Base DEFINITION for anything the inventory can hold -- a tool, a resource, a future
+## consumable (design-items.md "Item model"). Pure DEFINITION data on a shared Resource:
+## the sharing trap (patterns/resource-driven-design.md) means NO runtime/per-instance
+## state ever lives here (a tool's current wear, a stack's count) -- those live on the
+## Inventory's ItemStack or a runtime component, never on the shared ItemData.
+##
+## ToolData EXTENDS this (adding atk/power/break_threshold/wear_max/harvest_type/
+## blade_color), so a tool IS an ItemData -- the Inventory, HUD, and pickup path all speak
+## ItemData and only DOWN-CAST to ToolData at the equip seam (a resource stack casts to
+## null -> the unarmed fallback, exactly as an empty slot does).
+
+## Human-readable label (debug/logs; the HUD's fallback glyph is its first character).
+@export var display_name: String = "Item"
+## How many of this item fit in ONE inventory slot. 1 = non-stackable (all tools); a
+## resource (Wood/Stone) uses 64. add_item() tops existing stacks to this cap before
+## spilling into new slots.
+@export var max_stack: int = 1
+## Short hotbar glyph (1-2 chars) shown in the slot widget. "" means "fall back to the
+## display_name's first character" -- so tools (glyph "") still read S/A/P unchanged while
+## resources can pin an explicit letter (W/S) independent of their display_name.
+@export var glyph: String = ""
+
+# Verified against: Godot 4.7.1 (2026-07-18)

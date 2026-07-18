@@ -93,6 +93,18 @@ func run(ctx: TestContext) -> void:
 		"HUD empty hotbar slots are blank",
 		"HUD empty hotbar slots not blank")
 
+	# --- E1b: a resource stack shows its glyph + count; a tool slot shows no count -----
+	# Drop 5 Wood into empty slot 3; the per-frame pass renders glyph "W" and count "5",
+	# while a tool slot (count 1) shows a blank count.
+	player.inventory.add_item(load("res://data/wood.tres"), 5)
+	await ctx.settle_idle()
+	ctx.check(hud.slot_glyph_at(3) == "W" and hud.slot_count_at(3) == 5,
+		"HUD resource slot shows glyph W and count 5 (" + hud.slot_glyph_at(3) + "/" + str(hud.slot_count_at(3)) + ")",
+		"HUD resource slot glyph/count wrong (" + hud.slot_glyph_at(3) + "/" + str(hud.slot_count_at(3)) + ")")
+	ctx.check(hud.slot_count_at(0) == 0,
+		"HUD tool slot shows no count (count 1 is not rendered)",
+		"HUD tool slot wrongly showed a count (" + str(hud.slot_count_at(0)) + ")")
+
 	player.inventory.equip_index(0)
 	player._apply_equipped()
 	await ctx.settle_idle()
