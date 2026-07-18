@@ -34,10 +34,13 @@ extends CharacterBody2D
 ## How fast a knockback impulse bleeds back to zero, in pixels/sec^2.
 @export var knockback_decay: float = 1200.0
 
-## Magnetic auto-pickup (E3a, design-items.md "Drops -- Magnetic pickup"). Range in px within
-## which a ground Drop is pulled toward the player; ~72 is a couple of tiles (WorldScale.TILE
-## 40), a Stardew-ish grab reach. 0 DISABLES pickup for this player -- the lever a test uses
-## when its player must sit amid harvest litter it must NOT auto-collect (see _process_pickups).
+## Magnetic auto-pickup tunables (E3a, design-items.md "Drops -- Magnetic pickup"). The magnet
+## ALGORITHM lives in components/pickup.gd (a RefCounted) which reads these three off the player
+## each frame; they MUST stay as @export node fields (not move onto the component) because a test
+## disables the magnet with `player.pickup_radius = 0.0` the SAME frame the scene is instantiated,
+## BEFORE _ready creates _pickup -- only a plain node field accepts that pre-_ready write (see
+## pickup.gd). Range in px a ground Drop is pulled from; ~72 is a couple tiles (WorldScale.TILE
+## 40). 0 DISABLES pickup -- the lever a test uses when its player must sit amid un-collectable litter.
 @export var pickup_radius: float = 72.0
 ## How fast a pulled Drop homes toward the player, in px/sec.
 @export var pickup_pull_speed: float = 180.0
@@ -80,8 +83,6 @@ var respawn_point: Vector2 = Vector2.INF
 
 ## Which hit of the combo the NEXT attack() will play: 0 -> arc A, 1 -> arc B,
 ## 2 -> lunge. Advances each swing and wraps 2 -> 0. Public so a test can read it.
-var _combo_index: int = 0
-var _attacking: bool = false
 ## Equipment subsystem (E1a, components/equipment.gd): owns the inventory, the per-tool
 ## durability map, the active-tool/broken-gate state, and the inventory input. Created
 ## and wired in _ready. The forwarding facade below (inventory / _active_durability /
@@ -89,6 +90,8 @@ var _attacking: bool = false
 ## for the tests and the HUD without them knowing the subsystem moved.
 var _equipment: Equipment = null
 var _interaction: Interaction = null  ## E4 (components/interaction.gd): pure-logic 'f'-harvest RefCounted (node-free like _equipment), made in _ready.
+var _pickup: Pickup = null  ## E3a (components/pickup.gd): magnetic auto-pickup RefCounted (node-free like _equipment), made in _ready.
+var _combat: Combat = null  ## Sword-combo subsystem (components/combat.gd): owns _combo_index/_attacking/the swing tween, made in _ready.
 ## Controlled movement velocity, kept separate from knockback so the two do not
 ## compound frame to frame.
 var _move_velocity: Vector2 = Vector2.ZERO
@@ -96,8 +99,6 @@ var _move_velocity: Vector2 = Vector2.ZERO
 var _knockback: Vector2 = Vector2.ZERO
 ## Looping tween that blinks the avatar while invincible; null when not blinking.
 var _blink_tween: Tween = null
-## Active blade-sweep tween; killed on death so a mid-swing death leaves no blade.
-var _swing_tween: Tween = null
 
 @onready var _body: Polygon2D = $Body
 @onready var _sword_pivot: Node2D = $SwordPivot
@@ -142,6 +143,26 @@ var _combo_enabled: bool:
 		return _equipment.active_combos()
 
 
+# --- Combat facade -------------------------------------------------------------------
+# Thin forwarders so tests and _simulate keep reading/writing `player.X` after the combo subsystem
+# moved to components/combat.gd. Both are accessed only AFTER _ready (unlike the pickup tunables,
+# which had to stay real node fields to accept a pre-_ready write), so routing through _combat is safe.
+
+## Which hit the NEXT attack() plays (0 arc A / 1 arc B / 2 lunge), owned by the Combat. Forwarded
+## get+set: a test READS it (assert the combo advanced) and SETS it (`= 2` to force the lunge).
+var _combo_index: int:
+	get:
+		return _combat._combo_index
+	set(value):
+		_combat._combo_index = value
+## True while a swing is in flight, owned by the Combat. Forwarded get+set: a test's drain loop reads it (`if not player._attacking`); _respawn_in_place clears it.
+var _attacking: bool:
+	get:
+		return _combat._attacking
+	set(value):
+		_combat._attacking = value
+
+
 func _ready() -> void:
 	# The enemy AI resolves its target through this group, so it never needs a
 	# hard node path to the player.
@@ -155,8 +176,6 @@ func _ready() -> void:
 	_hurtbox.hit_taken.connect(_on_hit_taken)
 	_hurtbox.invincibility_started.connect(_on_invincibility_started)
 	_hurtbox.invincibility_ended.connect(_on_invincibility_ended)
-	# Combo continue-window: on timeout the next swing restarts at hit 1.
-	_combo_reset_timer.timeout.connect(_on_combo_reset)
 	# Equipment subsystem (E1a). A RefCounted (NOT a child node -- see equipment.gd for
 	# why: a node would perturb the streaming node-count anchor). "Call down" the host
 	# (self, for on-demand durability parenting) + the shared Sword Hitbox / Blade + the
@@ -166,6 +185,15 @@ func _ready() -> void:
 	_equipment = Equipment.new()
 	_equipment.setup(self, _sword, _blade, $SwordDurability, $AxeDurability, $PickaxeDurability)
 	_interaction = Interaction.new()  # E4: RefCounted like _equipment; scans "interactables" per frame.
+	# Magnetic auto-pickup subsystem (E3a). A RefCounted (NOT a child node -- see pickup.gd; a node
+	# perturbs the streaming node-count anchor). Player "calls down" into _pickup.process() each frame.
+	_pickup = Pickup.new()
+	# Sword-combo subsystem. A RefCounted (NOT a child node -- see combat.gd for why: a node would
+	# perturb the streaming node-count anchor). "Call down" the host (self -- the swing creates its
+	# tween/timer via the player, reads facing + tunables off it) + the SwordPivot / Blade / Sword
+	# CollisionShape2D + the ComboResetTimer; setup() also adopts the combo-reset timeout connection.
+	_combat = Combat.new()
+	_combat.setup(self, _sword_pivot, _blade, _sword_shape, _combo_reset_timer)
 
 
 ## Equip a tool (facade -> Equipment.equip_tool). Directly callable -- a headless test
@@ -199,9 +227,9 @@ func _physics_process(delta: float) -> void:
 	# before the split.
 	_equipment.process_inventory_input()
 	# Magnetic auto-pickup (E3a). Like inventory input, this runs OUTSIDE the FrameInput /
-	# _simulate seam: grabbing ground loot is a LOCAL world interaction, not networked
-	# simulation state a peer/AI would replay -- see _process_pickups.
-	_process_pickups(delta)
+	# _simulate seam: grabbing ground loot is a LOCAL world interaction, not networked simulation
+	# state a peer/AI would replay -- see components/pickup.gd. The player calls down each frame.
+	_pickup.process(self, delta)
 	_interaction.process(self)  # E4: nearby scan + 'f'-harvest, node-free like the pickup pass (InputMap, not FrameInput).
 
 
@@ -257,99 +285,13 @@ func _simulate(delta: float, input: FrameInput) -> void:
 		attack()
 
 
-## Play a swing in the current facing direction, then retract the blade. Callable directly
-## -- the headless smoke test calls this, so attacking must NOT be gated solely behind real
-## input. The equipped tool decides the STYLE: a combo weapon (the sword) chains arc -> arc
-## -> lunge, pressing again within combo_window to continue; a regular tool (axe/pickaxe/
-## unarmed) does a single arc swing per press with no chain (see the tail's _combo_enabled
-## gate). The swing shape itself is still chosen by _combo_index.
+## Play a swing in the current facing direction (facade -> Combat.attack). Callable directly
+## -- the headless smoke test and _simulate above call it -- and it AWAITs (the swing spans
+## swing_duration), so this facade must `await` the component or a caller that awaits
+## player.attack() would resume a frame early. The combo STYLE (sword chains arc->arc->lunge,
+## other tools single-swing) and the swing SHAPE (by _combo_index) all live in Combat now.
 func attack() -> void:
-	if _attacking or _sword_broken:
-		return
-	_attacking = true
-	# Continuing the combo: stop the reset so the window does not expire mid-swing.
-	_combo_reset_timer.stop()
-
-	var base: float = facing.angle()
-	var half: float = deg_to_rad(arc_degrees / 2.0)
-
-	match _combo_index:
-		0, 1:
-			# Arc hits (1 & 2): an OVERHEAD chop -- always sweeps from the TOP of the arc down
-			# to the bottom ON SCREEN, for ANY facing. Screen +y is DOWN, so we start at the
-			# endpoint that is higher (smaller sin) and finish at the lower one. A fixed
-			# +half -> -half instead reads top-down for one facing but BOTTOM-UP for its mirror
-			# -- the "backwards" swing when facing right. Both combo arcs strike downward.
-			var arc: Array = _overhead_arc(base, half)
-			_sword_pivot.rotation = arc[0]
-			_begin_swing()
-			await _sweep_to(arc[1])
-		2:
-			# Hit 3: lunge. Blade straight along facing; nudge the player forward
-			# through the existing decaying-knockback system so it slides and stops.
-			_sword_pivot.rotation = base
-			_begin_swing()
-			_knockback = facing * lunge_impulse
-			await get_tree().create_timer(swing_duration).timeout
-
-	_end_swing()
-	# Bail if a mid-swing death freed us out of the tree.
-	if not is_inside_tree():
-		return
-	# Only a COMBO weapon (the sword) chains: advance to the next hit and open the
-	# continue-window. A regular tool (axe/pickaxe/unarmed) does NOT chain -- reset to hit 0
-	# so every press is a fresh single arc swing, never advancing into arc B or the lunge.
-	# (The swing TYPE above is still selected by _combo_index, so a test that forces the
-	# index still gets that swing; only the auto-advance is gated.)
-	if _combo_enabled:
-		_combo_index = (_combo_index + 1) % 3
-		_combo_reset_timer.start(combo_window)
-	else:
-		_combo_index = 0
-	_attacking = false
-
-
-## Return [start, end] pivot rotation for an OVERHEAD arc (top -> bottom on screen) spanning
-## +/- half around `base`. Screen +y is DOWN, so the higher endpoint is the one with the
-## smaller sin; start there so every facing reads as a downward chop instead of a
-## facing-dependent bottom-to-top swing. The +/- half endpoints are unchanged -- only which
-## one the sweep STARTS from. Ties (facing straight up/down) fall back to base-half -> base+half.
-func _overhead_arc(base: float, half: float) -> Array:
-	var a: float = base - half
-	var b: float = base + half
-	if sin(a) <= sin(b):
-		return [a, b]
-	return [b, a]
-
-
-## Enable the blade collision and show the silver rectangle for a swing.
-func _begin_swing() -> void:
-	_sword_shape.disabled = false
-	_blade.visible = true
-
-
-## Disable the blade collision and hide the rectangle after a swing. Guarded so a
-## mid-swing death that freed these nodes cannot crash the retract.
-func _end_swing() -> void:
-	if is_instance_valid(_sword_shape):
-		_sword_shape.disabled = true
-	if is_instance_valid(_blade):
-		_blade.visible = false
-
-
-## Tween the pivot rotation to `target` over swing_duration and await it, tracking
-## the tween so death can cancel it.
-func _sweep_to(target: float) -> void:
-	if _swing_tween != null and _swing_tween.is_valid():
-		_swing_tween.kill()
-	_swing_tween = create_tween()
-	_swing_tween.tween_property(_sword_pivot, "rotation", target, swing_duration)
-	await _swing_tween.finished
-
-
-## Combo grace window expired: the next attack restarts at hit 1.
-func _on_combo_reset() -> void:
-	_combo_index = 0
+	await _combat.attack()
 
 
 ## Flash white on a hit, then tween back -- same overbright trick the enemy uses.
@@ -397,14 +339,12 @@ func _on_died() -> void:
 	# Stop any i-frame blink so it cannot re-show the body mid-burst.
 	if _blink_tween != null and _blink_tween.is_valid():
 		_blink_tween.kill()
-	# Kill an in-flight blade sweep so a mid-swing death leaves no blade behind.
-	if _swing_tween != null and _swing_tween.is_valid():
-		_swing_tween.kill()
-	# The avatar "pops": hide it and its blade, replace with the burst.
+	# Kill an in-flight blade sweep AND hide the blade + disable its hitbox so a mid-swing death
+	# leaves no blade behind -- routed through the Combat, which owns the swing tween (there is a
+	# test for mid-swing death). The body-hide below is a player concern and stays here.
+	_combat.cancel_swing()
+	# The avatar "pops": hide the body, replace with the burst.
 	_body.visible = false
-	_blade.visible = false
-	if is_instance_valid(_sword_shape):
-		_sword_shape.disabled = true
 	var burst: DeathBurst = DeathBurst.new()
 	burst.color = _body.color
 	get_parent().add_child(burst)
@@ -448,52 +388,12 @@ func _respawn_in_place() -> void:
 		_sword_shape.disabled = true
 
 
-# --- Magnetic auto-pickup (E3a) -------------------------------------------------------
-# Stardew-style: a Drop within pickup_radius slides toward the player and is grabbed on
-# contact into the inventory -- no button. Implemented as PURE player logic (a per-frame
-# scan of the "drops" group), NOT a scene node: an Area2D/Timer on player.tscn would perturb
-# the streaming zero-orphan-leak baseline (that test prints Performance.OBJECT_NODE_COUNT
-# verbatim), the same reason Equipment stays a RefCounted. E3a is pickup ONLY -- the 5-min
-# lifetime cull (E3b) and chunk-persistence (E3c) are deliberately NOT here.
-
-## Collect `count` of `item` into the inventory -- the magnet's grab, and directly test-
-## callable. Routed through the inventory facade (_equipment.inventory) so a full inventory
-## leaves the loot for the caller. Returns the overflow add_item could not fit (0 = all taken).
+# --- Pickup facade (E3a) --------------------------------------------------------------
+## Collect `count` of `item` into the inventory (facade -> Pickup.collect). The magnet's grab, and
+## directly test/world-callable -- world/bush.gd harvests through player.collect(...). Passes self
+## down so the RefCounted reaches the inventory; returns the overflow add_item could not fit
+## (0 = all taken), so a full inventory leaves the loot for the caller, unchanged from the split.
 func collect(item: ItemData, count: int) -> int:
-	return inventory.add_item(item, count)
-
-
-## Per-frame magnet pass. For each in-range Drop: home it toward the player (clamped so a fast
-## pull never overshoots) and, on contact, collect it -- freeing it if it fully fit, shrinking
-## its count on a partial take, or leaving it wholly untouched when the inventory is full.
-func _process_pickups(delta: float) -> void:
-	# Disabled player, or nothing to do: bail cheaply before the group query.
-	if pickup_radius <= 0.0:
-		return
-	var tree: SceneTree = get_tree()
-	if tree == null or tree.paused:
-		return
-	var drops: Array = tree.get_nodes_in_group("drops")
-	if drops.is_empty():
-		return
-	var step: float = pickup_pull_speed * delta
-	for node in drops:
-		if not (node is Drop):
-			continue
-		var drop: Drop = node as Drop
-		# A drop freed / queued mid-iteration must be skipped, not touched.
-		if not is_instance_valid(drop) or drop.is_queued_for_deletion():
-			continue
-		if global_position.distance_to(drop.global_position) > pickup_radius:
-			continue
-		drop.global_position = drop.global_position.move_toward(global_position, step)
-		# Re-measure post-move so a same-frame arrival still grabs this tick.
-		if global_position.distance_to(drop.global_position) <= pickup_grab_radius:
-			var overflow: int = collect(drop.item, drop.count)
-			if overflow <= 0:
-				drop.queue_free()          # fully collected
-			elif overflow < drop.count:
-				drop.count = overflow      # partial take -- leave the remainder on the ground
-			# overflow == count: inventory full -> leave the drop entirely (no free, no dupe).
+	return _pickup.collect(self, item, count)
 
 # Verified against: Godot 4.7.1 (2026-07-18)
