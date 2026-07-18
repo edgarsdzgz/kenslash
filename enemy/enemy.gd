@@ -67,6 +67,8 @@ var _move_velocity: Vector2 = Vector2.ZERO
 var _knockback: Vector2 = Vector2.ZERO
 
 @onready var _body: Polygon2D = $Body
+## The DOWN-facing "face" circle, a child of Body so it rides its visibility + modulate.
+@onready var _face: Polygon2D = $Body/Face
 @onready var _health: HealthComponent = $HealthComponent
 @onready var _hurtbox: Hurtbox = $Hurtbox
 @onready var _attack_hitbox: Area2D = $AttackHitbox
@@ -78,11 +80,21 @@ var _knockback: Vector2 = Vector2.ZERO
 ## DurabilityComponent child; null for a bare flesh enemy.
 @onready var _armor: DurabilityComponent = get_node_or_null("Armor")
 
+## Four-facing look (components/avatar.gd): RefCounted like the player's, made in _ready; drives
+## the Body shape/flip + Face per facing. Shared verbatim with the player -- one facing rule.
+var _avatar: Avatar = null
+
 
 func _ready() -> void:
 	# Parent wires its own components together ("call down"); the Hurtbox never
 	# reaches for the HealthComponent on its own.
 	_hurtbox.health = _health
+	# Four-facing avatar (components/avatar.gd), the SAME component + call-down the player uses. A
+	# RefCounted (NOT a child node -- a node would perturb the streaming node-count anchor). "Call
+	# down" the Body + its Face child; _physics_process calls _avatar.update() each frame (except
+	# a stationary dummy, which returns early and keeps its authored D-shape, unchanged).
+	_avatar = Avatar.new()
+	_avatar.setup(_body, _face)
 	_health.damaged.connect(_on_damaged)
 	_health.died.connect(_on_died)
 	# Take knockback when the player's slash lands.
@@ -126,7 +138,9 @@ func _physics_process(delta: float) -> void:
 		_side_facing = 1
 	elif _facing.x < 0.0:
 		_side_facing = -1
-	_body.scale.x = float(_side_facing)
+	# Four-facing look: horizontal keeps the D-shape flipped by _side_facing (unchanged); pure
+	# up/down swaps in the rectangle body (and, facing DOWN, shows the face) -- see avatar.gd.
+	_avatar.update(_facing, _side_facing)
 
 	match _state:
 		State.IDLE:
@@ -271,4 +285,4 @@ func _on_died() -> void:
 	if is_instance_valid(self):
 		queue_free()
 
-# Verified against: Godot 4.7.1 (2026-07-17)
+# Verified against: Godot 4.7.1 (2026-07-18)

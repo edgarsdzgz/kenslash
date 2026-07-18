@@ -92,6 +92,7 @@ var _equipment: Equipment = null
 var _interaction: Interaction = null  ## E4 (components/interaction.gd): pure-logic 'f'-harvest RefCounted (node-free like _equipment), made in _ready.
 var _pickup: Pickup = null  ## E3a (components/pickup.gd): magnetic auto-pickup RefCounted (node-free like _equipment), made in _ready.
 var _combat: Combat = null  ## Sword-combo subsystem (components/combat.gd): owns _combo_index/_attacking/the swing tween, made in _ready.
+var _avatar: Avatar = null  ## Four-facing look (components/avatar.gd): RefCounted like the others, made in _ready; drives Body shape/flip + Face per facing.
 ## Controlled movement velocity, kept separate from knockback so the two do not
 ## compound frame to frame.
 var _move_velocity: Vector2 = Vector2.ZERO
@@ -101,6 +102,8 @@ var _knockback: Vector2 = Vector2.ZERO
 var _blink_tween: Tween = null
 
 @onready var _body: Polygon2D = $Body
+## The DOWN-facing "face" circle, a child of Body so it rides its visibility + modulate.
+@onready var _face: Polygon2D = $Body/Face
 @onready var _sword_pivot: Node2D = $SwordPivot
 ## The Sword Hitbox STAYS on the player (the Equipment holds a ref to this SAME node and
 ## writes tool stats onto it) so tests read `player._sword.atk` etc. unchanged.
@@ -194,6 +197,12 @@ func _ready() -> void:
 	# CollisionShape2D + the ComboResetTimer; setup() also adopts the combo-reset timeout connection.
 	_combat = Combat.new()
 	_combat.setup(self, _sword_pivot, _blade, _sword_shape, _combo_reset_timer)
+	# Four-facing avatar (components/avatar.gd). A RefCounted (NOT a child node -- a node would
+	# perturb the streaming node-count anchor, same as the components above). "Call down" the
+	# Body + its Face child; setup() captures the D-shape as the side look and derives the
+	# up/down rectangle. _simulate calls _avatar.update() each frame to pick the facing look.
+	_avatar = Avatar.new()
+	_avatar.setup(_body, _face)
 
 
 ## Equip a tool (facade -> Equipment.equip_tool). Directly callable -- a headless test
@@ -274,7 +283,9 @@ func _simulate(delta: float, input: FrameInput) -> void:
 		side_facing = 1
 	elif input.move.x < 0.0:
 		side_facing = -1
-	_body.scale.x = float(side_facing)
+	# Four-facing look: horizontal keeps the D-shape flipped by side_facing (unchanged); pure
+	# up/down swaps in the rectangle body (and, facing DOWN, shows the face) -- see avatar.gd.
+	_avatar.update(facing, side_facing)
 
 	# Controlled movement plus a decaying knockback impulse (also the lunge slide).
 	velocity = _move_velocity + _knockback

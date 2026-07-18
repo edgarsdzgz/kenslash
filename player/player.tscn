@@ -24,6 +24,11 @@ script = ExtResource("1_player")
 color = Color(0.35, 0.7, 1, 1)
 polygon = PackedVector2Array(-10, -36, 0, -36, 3.83, -34.48, 7.07, -30.14, 9.24, -23.65, 10, -16, 9.24, -8.35, 7.07, -1.86, 3.83, 2.48, 0, 4, -10, 4)
 
+[node name="Face" type="Polygon2D" parent="Body"]
+color = Color(0.1, 0.1, 0.15, 1)
+polygon = PackedVector2Array(5, -26, 4.33, -23.5, 2.5, -21.67, 0, -21, -2.5, -21.67, -4.33, -23.5, -5, -26, -4.33, -28.5, -2.5, -30.33, 0, -31, 2.5, -30.33, 4.33, -28.5)
+visible = false
+
 [node name="CollisionShape2D" type="CollisionShape2D" parent="."]
 position = Vector2(0, -6)
 shape = SubResource("RectangleShape2D_body")

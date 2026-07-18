@@ -204,55 +204,100 @@ func run(ctx: TestContext) -> void:
 		"re-equipping the sword swapped the Blade to the sword silhouette",
 		"sword silhouette not applied on re-equip (" + str(player._blade.polygon) + ")")
 
-	# --- s. Body-facing flip: side_facing ignores pure up/down, aim does not ----
+	# --- s. Four-facing avatar: side_facing ignores pure up/down, aim does not, AND
+	# the Body swaps shape (D-shape sideways, RECTANGLE up/down) with a DOWN-only face.
 	# Drives the player via input_override (FrameInput), not real keys, so this is
-	# deterministic. `facing` (sword aim, full direction) must update on EVERY
-	# non-zero input including pure vertical; `side_facing` (Body left/right flip)
-	# must update ONLY when the input has an x component, holding through any
-	# pure up/down press.
+	# deterministic. `facing` (sword aim, full direction) must update on EVERY non-zero
+	# input including pure vertical; `side_facing` (Body left/right flip) must update ONLY
+	# when the input has an x component, holding through any pure up/down press. The Avatar
+	# (components/avatar.gd) then maps facing -> {D-shape+flip, rectangle, rectangle+face}.
 	player.global_position = Vector2(2000, -2000)  # clear of every other entity
+	var side_shape: PackedVector2Array = player._avatar.side_shape  # authored D-shape (L/R look)
+	var vert_shape: PackedVector2Array = player._avatar.vert_shape   # bbox rectangle (up/down look)
 	var drive: FrameInput = FrameInput.new()
 
+	# Facing RIGHT: side_facing 1, scale +1 (unflipped), D-shape body, NO face.
 	drive.move = Vector2.RIGHT
 	player.input_override = drive
 	await ctx.tree.physics_frame
-	ctx.check(player.side_facing == 1 and is_equal_approx(player._body.scale.x, 1.0),
-		"facing right sets side_facing=1, Body scale.x=+1 (unflipped)",
-		"facing right did not set side_facing/scale correctly (side_facing=" + str(player.side_facing) + " scale.x=" + str(player._body.scale.x) + ")")
+	ctx.check(player.side_facing == 1 and is_equal_approx(player._body.scale.x, 1.0)
+			and player._body.polygon == side_shape and not player._face.visible,
+		"facing right: side_facing=1, Body scale.x=+1 (unflipped), D-shape body, no face",
+		"facing right wrong (side_facing=" + str(player.side_facing) + " scale.x=" + str(player._body.scale.x) + " face=" + str(player._face.visible) + ")")
 
+	# Facing LEFT: side_facing -1, scale -1 (mirrored), still the D-shape, NO face.
 	drive.move = Vector2.LEFT
 	await ctx.tree.physics_frame
-	ctx.check(player.side_facing == -1 and is_equal_approx(player._body.scale.x, -1.0),
-		"facing left sets side_facing=-1, Body scale.x=-1 (horizontally mirrored, no y shift)",
-		"facing left did not set side_facing/scale correctly (side_facing=" + str(player.side_facing) + " scale.x=" + str(player._body.scale.x) + ")")
+	ctx.check(player.side_facing == -1 and is_equal_approx(player._body.scale.x, -1.0)
+			and player._body.polygon == side_shape and not player._face.visible,
+		"facing left: side_facing=-1, Body scale.x=-1 (horizontally mirrored, no y shift), D-shape, no face",
+		"facing left wrong (side_facing=" + str(player.side_facing) + " scale.x=" + str(player._body.scale.x) + " face=" + str(player._face.visible) + ")")
 
-	# Pure UP: aim (`facing`) must track it, but side_facing/Body must NOT change.
+	# Pure UP (away from viewer): aim tracks UP; side_facing UNCHANGED (no x); Body becomes the
+	# RECTANGLE, scale reset to +1 (a back has no left/right), and NO face is shown.
 	drive.move = Vector2.UP
 	await ctx.tree.physics_frame
-	ctx.check(player.facing == Vector2.UP,
-		"pure UP still updates sword aim (facing == UP)",
-		"pure UP did not update aim (facing=" + str(player.facing) + ")")
-	ctx.check(player.side_facing == -1 and is_equal_approx(player._body.scale.x, -1.0),
-		"pure UP left side_facing/Body unchanged (still mirrored left)",
-		"pure UP wrongly changed side_facing/scale (side_facing=" + str(player.side_facing) + " scale.x=" + str(player._body.scale.x) + ")")
+	ctx.check(player.facing == Vector2.UP and player.side_facing == -1,
+		"pure UP updates aim (facing == UP) but leaves side_facing at -1 (no x component)",
+		"pure UP aim/side_facing wrong (facing=" + str(player.facing) + " side_facing=" + str(player.side_facing) + ")")
+	ctx.check(player._body.polygon == vert_shape and is_equal_approx(player._body.scale.x, 1.0)
+			and not player._face.visible,
+		"facing UP: Body is the RECTANGLE (vert shape), scale.x=+1 (no flip), NO face (looking away)",
+		"facing UP wrong (polygon==vert? " + str(player._body.polygon == vert_shape) + " scale.x=" + str(player._body.scale.x) + " face=" + str(player._face.visible) + ")")
 
-	# Pure DOWN: same guarantee, still holding "left" from before.
+	# Pure DOWN (toward viewer): aim tracks DOWN; side_facing still UNCHANGED; Body is the
+	# RECTANGLE and the FACE is SHOWN (it is looking at the screen).
 	drive.move = Vector2.DOWN
 	await ctx.tree.physics_frame
-	ctx.check(player.facing == Vector2.DOWN,
-		"pure DOWN still updates sword aim (facing == DOWN)",
-		"pure DOWN did not update aim (facing=" + str(player.facing) + ")")
-	ctx.check(player.side_facing == -1 and is_equal_approx(player._body.scale.x, -1.0),
-		"pure DOWN left side_facing/Body unchanged (still mirrored left)",
-		"pure DOWN wrongly changed side_facing/scale (side_facing=" + str(player.side_facing) + " scale.x=" + str(player._body.scale.x) + ")")
+	ctx.check(player.facing == Vector2.DOWN and player.side_facing == -1,
+		"pure DOWN updates aim (facing == DOWN) but leaves side_facing at -1 (no x component)",
+		"pure DOWN aim/side_facing wrong (facing=" + str(player.facing) + " side_facing=" + str(player.side_facing) + ")")
+	ctx.check(player._body.polygon == vert_shape and is_equal_approx(player._body.scale.x, 1.0)
+			and player._face.visible,
+		"facing DOWN: Body is the RECTANGLE (vert shape) AND the face IS shown (looking at the viewer)",
+		"facing DOWN wrong (polygon==vert? " + str(player._body.polygon == vert_shape) + " scale.x=" + str(player._body.scale.x) + " face=" + str(player._face.visible) + ")")
 
-	# Diagonal (up-right): has an x component, so it DOES flip side_facing to right.
+	# Diagonal (up-right): has an x component, so it flips side_facing back to right AND (|x|==|y|
+	# tie -> horizontal branch) restores the D-shape, no face.
 	drive.move = Vector2(1, -1).normalized()
 	await ctx.tree.physics_frame
-	ctx.check(player.side_facing == 1 and is_equal_approx(player._body.scale.x, 1.0),
-		"diagonal up-right flips side_facing to 1 (has an x component)",
-		"diagonal up-right did not flip side_facing (side_facing=" + str(player.side_facing) + " scale.x=" + str(player._body.scale.x) + ")")
+	ctx.check(player.side_facing == 1 and is_equal_approx(player._body.scale.x, 1.0)
+			and player._body.polygon == side_shape and not player._face.visible,
+		"diagonal up-right flips side_facing to 1 (has an x component) and restores the D-shape, no face",
+		"diagonal up-right wrong (side_facing=" + str(player.side_facing) + " scale.x=" + str(player._body.scale.x) + " face=" + str(player._face.visible) + ")")
 
 	player.input_override = null  # release the seam back to real input
+
+	# --- s2. Enemy four-facing avatar (drive the surviving DUMMY, since ctx.enemy is freed
+	# after the combat death leg). Make it non-stationary so its _physics_process runs the
+	# facing/avatar pass, place the shared player directly above/below it so _facing points
+	# UP vs DOWN (x==0 -> the vertical branches), step one physics frame, and assert the
+	# Body swapped to its (bigger, bbox-derived) rectangle with the face hidden UP / shown DOWN.
+	var dummy_vert: PackedVector2Array = dummy._avatar.vert_shape
+	var dummy_face: Polygon2D = dummy.get_node("Body/Face") as Polygon2D
+	var dummy_was_stationary: bool = dummy.stationary
+	dummy.stationary = false
+
+	# Enemy facing UP: player above the dummy (smaller y) -> _facing == UP, no face.
+	dummy.global_position = Vector2(2500, -2500)
+	dummy._move_velocity = Vector2.ZERO
+	dummy._knockback = Vector2.ZERO
+	player.global_position = dummy.global_position + Vector2(0, -100)
+	await ctx.tree.physics_frame
+	ctx.check(dummy._body.polygon == dummy_vert and not dummy_face.visible,
+		"enemy facing UP: Body is the RECTANGLE (its own bbox rectangle) and NO face is shown",
+		"enemy facing UP wrong (polygon==vert? " + str(dummy._body.polygon == dummy_vert) + " face=" + str(dummy_face.visible) + " facing=" + str(dummy._facing) + ")")
+
+	# Enemy facing DOWN: player below the dummy (larger y) -> _facing == DOWN, face SHOWN.
+	dummy.global_position = Vector2(2500, -2500)
+	dummy._move_velocity = Vector2.ZERO
+	dummy._knockback = Vector2.ZERO
+	player.global_position = dummy.global_position + Vector2(0, 100)
+	await ctx.tree.physics_frame
+	ctx.check(dummy._body.polygon == dummy_vert and dummy_face.visible,
+		"enemy facing DOWN: Body is the RECTANGLE AND the face IS shown (looking at the viewer)",
+		"enemy facing DOWN wrong (polygon==vert? " + str(dummy._body.polygon == dummy_vert) + " face=" + str(dummy_face.visible) + " facing=" + str(dummy._facing) + ")")
+
+	dummy.stationary = dummy_was_stationary  # restore the training-dummy hold
 
 # Verified against: Godot 4.7.1 (2026-07-18)
