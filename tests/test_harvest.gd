@@ -36,9 +36,12 @@ func run(ctx: TestContext) -> void:
 	var tree_mat: DurabilityComponent = tree_node.get_node("Material") as DurabilityComponent
 	var yield_amount: int = int(tree_node.get("yield_amount"))
 	var tree_pos: Vector2 = tree_node.global_position
-	tree_mat.wear(tree_mat.current_durability)  # integrity -> 0 -> felled
-	await ctx.tree.physics_frame  # let the deferred add_child + positioning + queue_free resolve
-	await ctx.tree.physics_frame
+	tree_mat.wear(tree_mat.current_durability)  # integrity -> 0 -> the tree begins to topple
+	# Wood now bursts only AFTER the tree falls + breaks (not on the felling hit), so wait for
+	# the drops to appear (watchdog) rather than assuming they spawn on the same frame.
+	var drop_watchdog: SceneTreeTimer = ctx.tree.create_timer(3.0)
+	while _drops(tree_holder).size() < yield_amount and drop_watchdog.time_left > 0.0:
+		await ctx.tree.physics_frame
 
 	var wood_drops: Array = _drops(tree_holder)
 	ctx.check(wood_drops.size() == yield_amount,

@@ -17,6 +17,10 @@ const DROP_SCENE: PackedScene = preload("res://world/drop.tscn")
 ## Deterministic tiny offset (px) a mined stone drops at, just above the rock so it reads as
 ## chipping off. Fixed (no RNG) for a reproducible headless assertion.
 const _YIELD_OFFSET: Vector2 = Vector2(0, -10)
+## Damage-blink tint: a mined rock flashes its Body's fill to this warm color once, then fades
+## back to its natural color -- a readable "took a hit" COLOR change, not the old overbright
+## white-out that washed the stone toward invisible.
+const HIT_FLASH_COLOR: Color = Color(1.0, 0.5, 0.4, 1.0)
 
 ## System 2 -- how hard this rock is to carve (base material, no armor).
 @export var hardness: int = 6
@@ -50,9 +54,12 @@ func _ready() -> void:
 
 
 func _on_hit_taken(_hitbox: Hitbox) -> void:
-	_body.modulate = Color(2.0, 2.0, 2.0)
+	# Damage blink: a single quick COLOR flash (not an overbright white-out), so a mined rock
+	# clearly reads as taking a hit each pick. Flash the fill to the warm hit tint, then fade
+	# back to the rock's natural color.
+	_body.color = HIT_FLASH_COLOR
 	var tween: Tween = create_tween()
-	tween.tween_property(_body, "modulate", Color.WHITE, 0.2)
+	tween.tween_property(_body, "color", color, 0.18)
 
 
 func _on_integrity_changed(current: int, max_val: int) -> void:

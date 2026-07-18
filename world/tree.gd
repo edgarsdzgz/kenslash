@@ -20,6 +20,10 @@ const DROP_SCENE: PackedScene = preload("res://world/drop.tscn")
 ## Radius (px) of the deterministic ring the felled wood scatters onto. Small (~0.3 tile,
 ## components/world_scale.gd TILE 40) so the burst reads as landing at the stump.
 const _YIELD_RING_RADIUS: float = 12.0
+## Damage-blink tint: a struck (not-yet-felled) tree flashes its Body's fill to this warm
+## color once, then fades back to its natural color -- a readable "took a hit" COLOR change,
+## not the old overbright white-out that washed the trunk toward invisible.
+const HIT_FLASH_COLOR: Color = Color(1.0, 0.5, 0.4, 1.0)
 
 ## System 2 -- how hard this tree is to fell (base material). Deliberately soft --
 ## the axe (power 5) fells it with zero wear (Band A).
@@ -55,29 +59,34 @@ func _ready() -> void:
 
 
 func _on_hit_taken(_hitbox: Hitbox) -> void:
-	_body.modulate = Color(2.0, 2.0, 2.0)
+	# Damage blink: a single quick COLOR flash (not an overbright white-out), so a
+	# struck-but-standing tree clearly reads as taking a hit. Flash the fill to the warm hit
+	# tint, then fade back to the tree's natural color.
+	_body.color = HIT_FLASH_COLOR
 	var tween: Tween = create_tween()
-	tween.tween_property(_body, "modulate", Color.WHITE, 0.2)
+	tween.tween_property(_body, "color", color, 0.18)
 
 
 func _on_integrity_changed(current: int, max_val: int) -> void:
 	print("[tree] integrity ", current, "/", max_val)
 
 
-## Integrity hit 0: the tree is felled -- burst its wood (E2), tip the trunk over, then free.
+## Integrity hit 0: the tree is felled -- tip it over, blink as it BREAKS, THEN burst its wood
+## (only after it has fallen), lie a beat, and free.
 func _on_broke() -> void:
 	print("[tree] felled")
-	_spawn_yield()
-	_fall_and_free()
+	_fall_break_and_free()
 
 
-## Fell animation: the trunk tips 90deg to the SIDE, AWAY from the player, pivoting at its
-## base (the Body's origin sits at the trunk foot -- the "break" point), then the tree frees.
-## The solid body is dropped immediately so the player can walk through the falling/downed
-## trunk. Direction: player to our LEFT -> fall right (+90deg); player to our RIGHT -> fall
-## left (-90deg); default right when no player is found. Ease-in so it accelerates like a real
-## fall. Runs a tween so a headless test just waits for the node to free (watchdog).
-func _fall_and_free() -> void:
+## Fell sequence, in order: (1) the trunk tips 90deg to the SIDE, AWAY from the player,
+## pivoting at its base (the Body's origin sits at the trunk foot -- the "break" point);
+## (2) it BLINKS -- two quick color flashes -- at the moment it comes apart; (3) ONLY THEN
+## does it burst its wood, so the drops appear at the stump AFTER the fall, not on the felling
+## hit; (4) it lingers a beat, then frees. The solid body is dropped immediately so the player
+## can walk through the falling/downed trunk. Direction: player to our LEFT -> fall right
+## (+90deg); to our RIGHT -> fall left; default right. Ease-in so it accelerates like a real
+## fall. Runs a tween, so a headless test just waits (watchdog) for the drops / the free.
+func _fall_break_and_free() -> void:
 	var body_shape: CollisionShape2D = get_node_or_null("CollisionShape2D") as CollisionShape2D
 	if body_shape != null:
 		body_shape.set_deferred("disabled", true)
@@ -86,9 +95,18 @@ func _fall_and_free() -> void:
 	if p != null and p.global_position.x > global_position.x:
 		fall_dir = -1.0
 	var tween: Tween = create_tween()
+	# 1) tip over
 	tween.tween_property(_body, "rotation", fall_dir * PI / 2.0, 0.55) \
 		.set_ease(Tween.EASE_IN).set_trans(Tween.TRANS_QUAD)
-	tween.tween_interval(0.25)  # lie fallen for a beat before it vanishes
+	# 2) break-blink: two quick color flashes as the trunk snaps
+	tween.tween_property(_body, "color", HIT_FLASH_COLOR, 0.08)
+	tween.tween_property(_body, "color", color, 0.08)
+	tween.tween_property(_body, "color", HIT_FLASH_COLOR, 0.08)
+	tween.tween_property(_body, "color", color, 0.08)
+	# 3) NOW drop the wood -- only after the tree has fallen and broken
+	tween.tween_callback(_spawn_yield)
+	# 4) lie fallen for a beat, then vanish
+	tween.tween_interval(0.15)
 	tween.tween_callback(queue_free)
 
 
