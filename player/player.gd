@@ -134,6 +134,11 @@ var _active_durability: DurabilityComponent:
 var _sword_broken: bool:
 	get:
 		return _equipment._sword_broken
+## Whether the equipped tool chains the full 3-hit combo (the sword). Axe/pickaxe/unarmed
+## return false -> a single regular swing per press. Read in attack() to gate progression.
+var _combo_enabled: bool:
+	get:
+		return _equipment.active_combos()
 
 
 func _ready() -> void:
@@ -242,10 +247,12 @@ func _simulate(delta: float, input: FrameInput) -> void:
 		attack()
 
 
-## Play the next hit of the 3-hit combo in the current facing direction, then
-## retract the blade. Callable directly -- the headless smoke test calls this, so
-## attacking must NOT be gated solely behind real input. Pressing again within
-## combo_window continues the chain; after hit 3 it wraps back to hit 1.
+## Play a swing in the current facing direction, then retract the blade. Callable directly
+## -- the headless smoke test calls this, so attacking must NOT be gated solely behind real
+## input. The equipped tool decides the STYLE: a combo weapon (the sword) chains arc -> arc
+## -> lunge, pressing again within combo_window to continue; a regular tool (axe/pickaxe/
+## unarmed) does a single arc swing per press with no chain (see the tail's _combo_enabled
+## gate). The swing shape itself is still chosen by _combo_index.
 func attack() -> void:
 	if _attacking or _sword_broken:
 		return
@@ -276,13 +283,20 @@ func attack() -> void:
 			await get_tree().create_timer(swing_duration).timeout
 
 	_end_swing()
-	# Advance the combo and open the continue-window. Bail if a mid-swing death
-	# freed us out of the tree.
+	# Bail if a mid-swing death freed us out of the tree.
 	if not is_inside_tree():
 		return
-	_combo_index = (_combo_index + 1) % 3
+	# Only a COMBO weapon (the sword) chains: advance to the next hit and open the
+	# continue-window. A regular tool (axe/pickaxe/unarmed) does NOT chain -- reset to hit 0
+	# so every press is a fresh single arc swing, never advancing into arc B or the lunge.
+	# (The swing TYPE above is still selected by _combo_index, so a test that forces the
+	# index still gets that swing; only the auto-advance is gated.)
+	if _combo_enabled:
+		_combo_index = (_combo_index + 1) % 3
+		_combo_reset_timer.start(combo_window)
+	else:
+		_combo_index = 0
 	_attacking = false
-	_combo_reset_timer.start(combo_window)
 
 
 ## Enable the blade collision and show the silver rectangle for a swing.

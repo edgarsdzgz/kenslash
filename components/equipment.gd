@@ -174,6 +174,13 @@ func _apply_unarmed() -> void:
 	_blade.polygon = DEFAULT_BLADE_SHAPE
 
 
+## Does the CURRENTLY-equipped tool chain the full 3-hit combo? Only a tool whose ToolData
+## has_combo is set (the sword). Axe/pickaxe -> false; unarmed (no tool) -> false. Read by
+## the player's attack() to decide whether a swing advances the combo or is a single swing.
+func active_combos() -> bool:
+	return _active_tool != null and _active_tool.has_combo
+
+
 ## Look up (or lazily create) the RUNTIME DurabilityComponent for `tool`, keyed by its
 ## resource path so a future ToolData outside the three built-in nodes (a new inventory
 ## item) still gets its own independent wear counter instead of reusing someone else's

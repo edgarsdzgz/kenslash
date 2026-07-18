@@ -307,4 +307,37 @@ func run(ctx: TestContext) -> void:
 		"controller runs from injected FrameInput (moved dx " + str(int(seam_dx)) + ")",
 		"injected input did not move the player (dx " + str(seam_dx) + ")")
 
+	# --- j. Only the sword combos: axe/pickaxe do single regular swings ------
+	# has_combo gates the CHAIN, not the swing shape: a regular tool's press never advances
+	# _combo_index past 0 (so it never reaches arc B or the hit-3 lunge), unlike the sword's
+	# leg f above which advanced 0 -> 1 -> 2. Runs LAST and parks the player far from every
+	# other body so its attacks (and leftover position) cannot perturb the earlier collision
+	# legs -- only the combo index matters here.
+	player.global_position = Vector2(6000, 6000)
+	player.facing = Vector2.RIGHT
+	player._knockback = Vector2.ZERO
+	player.input_override = null
+	ctx.check(player._combo_enabled,
+		"the sword is a combo weapon (_combo_enabled true)",
+		"sword should combo but _combo_enabled is false")
+	player.equip_tool(Player.AXE_DATA)
+	ctx.check(not player._combo_enabled,
+		"the axe is a NON-combo weapon (single regular swings)",
+		"axe should not combo but _combo_enabled is true")
+	for _i in range(30):
+		if not player._attacking:
+			break
+		await ctx.tree.physics_frame
+	player._combo_index = 0
+	await ctx.tree.physics_frame
+	await player.attack()
+	var axe_after_1: int = player._combo_index
+	await player.attack()
+	var axe_after_2: int = player._combo_index
+	ctx.check(axe_after_1 == 0 and axe_after_2 == 0,
+		"axe swings never advance the combo (index stays 0 across presses)",
+		"axe combo advanced when it should not (after1=" + str(axe_after_1) + " after2=" + str(axe_after_2) + ")")
+	player.equip_tool(Player.SWORD_DATA)  # restore the default combo weapon
+	player._combo_index = 0
+
 # Verified against: Godot 4.7.1 (2026-07-17)

@@ -24,6 +24,10 @@ extends ItemData
 @export var max_durability: int = 40
 ## System 3 -- the gather category (Harvest.Type). NONE = a pure weapon (no harvest).
 @export var harvest_type: int = Harvest.Type.NONE
+## Whether this tool performs the full 3-hit COMBO (arc, arc, lunge) on repeated attacks.
+## Only the sword combos; the axe/pickaxe (and the unarmed fist) do a single regular arc
+## swing each press -- no chain, no lunge finisher. Read in player.gd attack().
+@export var has_combo: bool = false
 ## Blade tint when this tool is equipped, so the active tool reads at a glance.
 @export var blade_color: Color = Color(0.85, 0.9, 1.0, 1.0)
 ## The swung weapon's SILHOUETTE, as a Polygon2D outline in blade-local space (+x points
