@@ -198,9 +198,15 @@ func run(ctx: TestContext) -> void:
 	if sw_scene != null:
 		var sw: Node2D = sw_scene.instantiate()
 		ctx.tree.root.add_child(sw)
-		await ctx.tree.physics_frame
-		await ctx.tree.physics_frame
 		var sw_player: Node2D = sw.get_node("Player") as Node2D
+		# E3a HAZARD 2: streaming_world.tscn hard-authors this Player at (0,0), exactly where
+		# the durability legs' harvest drops linger (and MUST linger -- HAZARD 1's node-count
+		# baseline counts them). This leg tests camera follow, not pickup, so suppress the
+		# magnet here to keep that origin litter untouched. MUST run BEFORE the first physics
+		# frame, or the magnet grabs a frame of litter (the magnet is covered by test_pickup.gd).
+		sw_player.set("pickup_radius", 0.0)
+		await ctx.tree.physics_frame
+		await ctx.tree.physics_frame
 		var sw_cam: Camera2D = sw_player.get_node("Camera2D") as Camera2D
 		sw_player.global_position = Vector2(1234, -987)  # wander off-screen
 		await ctx.tree.physics_frame
@@ -407,4 +413,4 @@ func _count_content_roots(manager: ChunkManager) -> int:
 		total += container.get_child_count()
 	return total
 
-# Verified against: Godot 4.7.1 (2026-07-17)
+# Verified against: Godot 4.7.1 (2026-07-18)

@@ -18,11 +18,17 @@ func run(ctx: TestContext) -> void:
 		return
 	var sw: Node2D = sw_scene.instantiate()
 	ctx.tree.root.add_child(sw)
+	# E3a HAZARD 2: streaming_world.tscn hard-authors this Player at (0,0), where the
+	# durability legs' harvest drops linger. This module asserts empty hotbar slots 3-5 and an
+	# exact Wood count in slot 3; auto-collecting that origin litter would corrupt both. HUD
+	# tests presentation, not pickup, so suppress the magnet here (covered by test_pickup.gd).
+	# MUST run BEFORE the first physics frame below, or the magnet grabs a frame of litter.
+	var player: Player = sw.get_node("Player") as Player
+	player.pickup_radius = 0.0
 	# Step frames so _ready wiring (hud.bind, component _ready) settles and _process runs.
 	await ctx.settle_idle()
 	await ctx.settle_idle()
 
-	var player: Player = sw.get_node("Player") as Player
 	var hud: Hud = sw.get_node("HUD") as Hud
 	var health: HealthComponent = player.get_node("HealthComponent") as HealthComponent
 	ctx.check(hud != null and player != null,

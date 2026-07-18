@@ -17,10 +17,17 @@ func run(ctx: TestContext) -> void:
 		return
 	var sw: Node2D = sw_scene.instantiate()
 	ctx.tree.root.add_child(sw)
+	# E3a HAZARD 2: streaming_world.tscn hard-authors this Player at (0,0), where the
+	# durability legs' harvest drops linger (HAZARD 1's node baseline requires they stay put).
+	# This module tests world-preserving respawn, not pickup, so suppress the magnet here so
+	# the incidental player neither sweeps that origin litter nor auto-collects the rock it
+	# pre-mines below. MUST run BEFORE the first physics frame, or the magnet grabs a frame of
+	# litter. The magnet is proven in isolation by tests/test_pickup.gd.
+	var player: Player = sw.get_node("Player") as Player
+	player.pickup_radius = 0.0
 	await ctx.tree.physics_frame
 	await ctx.tree.physics_frame
 
-	var player: Player = sw.get_node("Player") as Player
 	var manager: ChunkManager = sw.get_node("ChunkManager") as ChunkManager
 	var health: HealthComponent = player.get_node("HealthComponent") as HealthComponent
 
@@ -101,4 +108,4 @@ func _first_rock_material(manager: ChunkManager) -> DurabilityComponent:
 				return child.get_node("Material") as DurabilityComponent
 	return null
 
-# Verified against: Godot 4.7.1 (2026-07-17)
+# Verified against: Godot 4.7.1 (2026-07-18)

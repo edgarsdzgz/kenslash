@@ -69,6 +69,16 @@ func _run() -> void:
 	ctx.axe_dura = player.get_node("AxeDurability") as DurabilityComponent
 	ctx.pickaxe_dura = player.get_node("PickaxeDurability") as DurabilityComponent
 
+	# E3a HAZARD 2: the ordered combat/durability legs mine rocks and fell the tree ADJACENT
+	# to THIS shared player (harvesting requires adjacency -> the drops spawn inside a magnet
+	# radius, so spatial isolation is infeasible), and leg r asserts inventory slots 3-5 stay
+	# EMPTY. With the magnet live, this player would auto-collect those harvest drops (breaking
+	# leg r) AND free the drops that then linger in main.tscn -- the very nodes the streaming
+	# zero-orphan-leak baseline counts (HAZARD 1). So pickup is suppressed on this incidental
+	# player; the litter stays put, byte-identical to the pre-magnet baseline. The magnet
+	# itself is proven in isolation by tests/test_pickup.gd.
+	player.pickup_radius = 0.0
+
 	# Let _ready wiring (group registration, component hookup) settle.
 	await physics_frame
 	await physics_frame
@@ -91,8 +101,11 @@ func _run() -> void:
 	# --- Harvest yield E2 (self-contained: own tree/rock instances under private holders) -
 	await TestHarvest.new().run(ctx)
 
+	# --- Magnetic auto-pickup E3a (self-contained: own player + drops far from origin) ----
+	await TestPickup.new().run(ctx)
+
 	if ctx.all_pass:
-		print("[PASS] smoke_slash: combat + combo + death + bodies + input seam + durability + streaming + playable + hud + harvest -- all passed")
+		print("[PASS] smoke_slash: combat + combo + death + bodies + input seam + durability + streaming + playable + hud + harvest + pickup -- all passed")
 		quit(0)
 	else:
 		_fail("one or more assertions failed")
@@ -102,4 +115,4 @@ func _fail(reason: String) -> void:
 	print("[FAIL] ", reason)
 	quit(1)
 
-# Verified against: Godot 4.7.1 (2026-07-17)
+# Verified against: Godot 4.7.1 (2026-07-18)

@@ -34,6 +34,16 @@ extends CharacterBody2D
 ## How fast a knockback impulse bleeds back to zero, in pixels/sec^2.
 @export var knockback_decay: float = 1200.0
 
+## Magnetic auto-pickup (E3a, design-items.md "Drops -- Magnetic pickup"). Range in px within
+## which a ground Drop is pulled toward the player; ~72 is a couple of tiles (WorldScale.TILE
+## 40), a Stardew-ish grab reach. 0 DISABLES pickup for this player -- the lever a test uses
+## when its player must sit amid harvest litter it must NOT auto-collect (see _process_pickups).
+@export var pickup_radius: float = 72.0
+## How fast a pulled Drop homes toward the player, in px/sec.
+@export var pickup_pull_speed: float = 180.0
+## Contact distance in px: once a pulled Drop is this close it is collected into the inventory.
+@export var pickup_grab_radius: float = 12.0
+
 ## System 3 -- tool categories (design-durability.md). The three built-in tools this
 ## build ships with. A future inventory/hotbar build will load ToolData resources
 ## dynamically instead of hardcoding these three; equip_tool() already accepts ANY
@@ -174,6 +184,10 @@ func _physics_process(delta: float) -> void:
 	# Equipment here rather than routed through FrameInput. Same physics-frame cadence as
 	# before the split.
 	_equipment.process_inventory_input()
+	# Magnetic auto-pickup (E3a). Like inventory input, this runs OUTSIDE the FrameInput /
+	# _simulate seam: grabbing ground loot is a LOCAL world interaction, not networked
+	# simulation state a peer/AI would replay -- see _process_pickups.
+	_process_pickups(delta)
 
 
 ## Mouse-wheel hotbar selection is an equipment concern; forward the event verbatim to
@@ -396,4 +410,53 @@ func _respawn_in_place() -> void:
 	if is_instance_valid(_sword_shape):
 		_sword_shape.disabled = true
 
-# Verified against: Godot 4.7.1 (2026-07-17)
+
+# --- Magnetic auto-pickup (E3a) -------------------------------------------------------
+# Stardew-style: a Drop within pickup_radius slides toward the player and is grabbed on
+# contact into the inventory -- no button. Implemented as PURE player logic (a per-frame
+# scan of the "drops" group), NOT a scene node: an Area2D/Timer on player.tscn would perturb
+# the streaming zero-orphan-leak baseline (that test prints Performance.OBJECT_NODE_COUNT
+# verbatim), the same reason Equipment stays a RefCounted. E3a is pickup ONLY -- the 5-min
+# lifetime cull (E3b) and chunk-persistence (E3c) are deliberately NOT here.
+
+## Collect `count` of `item` into the inventory -- the magnet's grab, and directly test-
+## callable. Routed through the inventory facade (_equipment.inventory) so a full inventory
+## leaves the loot for the caller. Returns the overflow add_item could not fit (0 = all taken).
+func collect(item: ItemData, count: int) -> int:
+	return inventory.add_item(item, count)
+
+
+## Per-frame magnet pass. For each in-range Drop: home it toward the player (clamped so a fast
+## pull never overshoots) and, on contact, collect it -- freeing it if it fully fit, shrinking
+## its count on a partial take, or leaving it wholly untouched when the inventory is full.
+func _process_pickups(delta: float) -> void:
+	# Disabled player, or nothing to do: bail cheaply before the group query.
+	if pickup_radius <= 0.0:
+		return
+	var tree: SceneTree = get_tree()
+	if tree == null or tree.paused:
+		return
+	var drops: Array = tree.get_nodes_in_group("drops")
+	if drops.is_empty():
+		return
+	var step: float = pickup_pull_speed * delta
+	for node in drops:
+		if not (node is Drop):
+			continue
+		var drop: Drop = node as Drop
+		# A drop freed / queued mid-iteration must be skipped, not touched.
+		if not is_instance_valid(drop) or drop.is_queued_for_deletion():
+			continue
+		if global_position.distance_to(drop.global_position) > pickup_radius:
+			continue
+		drop.global_position = drop.global_position.move_toward(global_position, step)
+		# Re-measure post-move so a same-frame arrival still grabs this tick.
+		if global_position.distance_to(drop.global_position) <= pickup_grab_radius:
+			var overflow: int = collect(drop.item, drop.count)
+			if overflow <= 0:
+				drop.queue_free()          # fully collected
+			elif overflow < drop.count:
+				drop.count = overflow      # partial take -- leave the remainder on the ground
+			# overflow == count: inventory full -> leave the drop entirely (no free, no dupe).
+
+# Verified against: Godot 4.7.1 (2026-07-18)

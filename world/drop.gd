@@ -34,6 +34,11 @@ func setup(p_item: ItemData, p_count: int) -> void:
 
 
 func _ready() -> void:
+	# Join the "drops" group so the player's magnetic auto-pickup (E3a, player.gd
+	# _process_pickups) can find every ground drop with one group query -- the same
+	# group-lookup contract the enemy AI uses to reach the "player". Pure membership; a
+	# Drop stays a plain Node2D (no Area2D), so this adds no node to the scene.
+	add_to_group("drops")
 	# setup() may have run while this node was still outside the tree (_body null then), so
 	# apply the tint here too. If setup() has not run yet, item is null and the Body keeps
 	# its scene-default gray until a later setup().
