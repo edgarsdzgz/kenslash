@@ -1,0 +1,15 @@
+# Normalize line endings: LF in the repo for all text (cross-platform hygiene).
+* text=auto eol=lf
+
+# Windows batch wrapper: keep CRLF so it runs reliably as a .cmd.
+*.cmd text eol=crlf
+
+# Godot / GDScript are text; be explicit.
+*.gd    text eol=lf
+*.tscn  text eol=lf
+*.tres  text eol=lf
+*.godot text eol=lf
+*.import text eol=lf
+*.uid   text eol=lf
+*.sh    text eol=lf
+*.md    text eol=lf
