@@ -44,6 +44,17 @@ func frame() -> void:
 	await tree.physics_frame
 
 
+## Wait for the IDLE `_process` cycle to run with the current state, then read it.
+## `process_frame` is emitted just BEFORE nodes' `_process`, so a single await can
+## resume before the node processed this frame; awaiting twice guarantees at least
+## one full `_process` pass ran after the caller's mutation. Use before reading any
+## node that refreshes in `_process` (e.g. the HUD) -- otherwise the read races the
+## refresh and flakes.
+func settle_idle() -> void:
+	await tree.process_frame
+	await tree.process_frame
+
+
 ## Reposition the player, drain any in-flight swing, clear the target's i-frames,
 ## reset to a clean arc (index 0, no lunge drift), then slash once and settle. Used
 ## for the repeated armored-dummy hits where a stable, repeatable strike is needed.

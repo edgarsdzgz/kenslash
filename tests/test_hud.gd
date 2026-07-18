@@ -19,8 +19,8 @@ func run(ctx: TestContext) -> void:
 	var sw: Node2D = sw_scene.instantiate()
 	ctx.tree.root.add_child(sw)
 	# Step frames so _ready wiring (hud.bind, component _ready) settles and _process runs.
-	await ctx.tree.physics_frame
-	await ctx.tree.physics_frame
+	await ctx.settle_idle()
+	await ctx.settle_idle()
 
 	var player: Player = sw.get_node("Player") as Player
 	var hud: Hud = sw.get_node("HUD") as Hud
@@ -39,14 +39,14 @@ func run(ctx: TestContext) -> void:
 
 	var before_hp: int = health.current_health
 	health.take_damage(2)
-	await ctx.tree.physics_frame
+	await ctx.settle_idle()
 	ctx.check(health.current_health == before_hp - 2 and hud.health_text() == "HP %d / %d" % [health.current_health, health.max_health],
 		"HUD health readout dropped after damage (" + hud.health_text() + ")",
 		"HUD health readout did not reflect damage (" + hud.health_text() + ")")
 
 	# revive() emits NO signal -- only the per-frame refresh can catch it.
 	health.revive()
-	await ctx.tree.physics_frame
+	await ctx.settle_idle()
 	ctx.check(health.current_health == health.max_health and hud.health_text() == "HP %d / %d" % [health.max_health, health.max_health],
 		"HUD health readout back to full after revive (per-frame pass caught the signal-less revive) (" + hud.health_text() + ")",
 		"HUD health readout did not follow revive (" + hud.health_text() + ")")
@@ -60,7 +60,7 @@ func run(ctx: TestContext) -> void:
 	# Switch the equipped tool through the player's real equip path (axe is slot 1).
 	player.inventory.equip_index(1)
 	player._apply_equipped()
-	await ctx.tree.physics_frame
+	await ctx.settle_idle()
 	var axe_dura: DurabilityComponent = player.get_node("AxeDurability") as DurabilityComponent
 	ctx.check(hud.tool_text() == "Axe  %d / %d" % [axe_dura.current_durability, axe_dura.max_durability],
 		"HUD reflects the equip switch to Axe + its durability (" + hud.tool_text() + ")",
@@ -69,7 +69,7 @@ func run(ctx: TestContext) -> void:
 	# Wear the ACTIVE tool's DurabilityComponent; the per-frame pass shows the drop.
 	var dura_before: int = axe_dura.current_durability
 	player._active_durability.wear(5)
-	await ctx.tree.physics_frame
+	await ctx.settle_idle()
 	ctx.check(axe_dura.current_durability == dura_before - 5 and hud.tool_text() == "Axe  %d / %d" % [axe_dura.current_durability, axe_dura.max_durability],
 		"HUD durability number dropped after the active tool wore (" + hud.tool_text() + ")",
 		"HUD durability did not drop after wear (" + hud.tool_text() + ")")
@@ -77,7 +77,7 @@ func run(ctx: TestContext) -> void:
 	# Equip an EMPTY slot (only 3 tools populated, so slot 3 is empty) -> Unarmed.
 	player.inventory.equip_index(3)
 	player._apply_equipped()
-	await ctx.tree.physics_frame
+	await ctx.settle_idle()
 	ctx.check(hud.tool_text() == "Unarmed",
 		"HUD shows 'Unarmed' for an empty equipped slot (" + hud.tool_text() + ")",
 		"HUD did not show 'Unarmed' for an empty slot (" + hud.tool_text() + ")")
@@ -95,19 +95,19 @@ func run(ctx: TestContext) -> void:
 
 	player.inventory.equip_index(0)
 	player._apply_equipped()
-	await ctx.tree.physics_frame
+	await ctx.settle_idle()
 	ctx.check(hud.highlighted_slot_index() == 0 and player.inventory.equipped_index == 0 and hud.highlighted_count() == 1,
 		"HUD highlight is on slot 0 (matches equipped_index) and exactly one slot is highlighted",
 		"HUD highlight wrong at slot 0 (idx " + str(hud.highlighted_slot_index()) + ", count " + str(hud.highlighted_count()) + ")")
 
 	player.inventory.equip_index(2)
 	player._apply_equipped()
-	await ctx.tree.physics_frame
+	await ctx.settle_idle()
 	ctx.check(hud.highlighted_slot_index() == 2 and player.inventory.equipped_index == 2 and hud.highlighted_count() == 1,
 		"HUD highlight moved to slot 2 after the equip change (still exactly one highlighted)",
 		"HUD highlight did not move to slot 2 (idx " + str(hud.highlighted_slot_index()) + ", count " + str(hud.highlighted_count()) + ")")
 
 	sw.queue_free()
-	await ctx.tree.physics_frame
+	await ctx.settle_idle()
 
 # Verified against: Godot 4.7.1 (2026-07-18)
