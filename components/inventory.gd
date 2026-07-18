@@ -21,11 +21,13 @@ extends RefCounted
 ## lives here, never on the shared ItemData/ToolData resources themselves -- the
 ## sharing trap, patterns/resource-driven-design.md.
 
-## Slot contents: null = empty, or an ItemStack. Default size 6 (today's starting
-## inventory). A test (or future growth code) can `slots.resize(n)` directly to
-## build a bigger inventory -- Array.resize() null-fills new typed-Object slots
-## (a typed Array[ItemStack] still permits null elements).
-var slots: Array[ItemStack] = [null, null, null, null, null, null]
+## Slot contents: null = empty, or an ItemStack. Default size 15 (today's starting
+## inventory): the leading hotbar_size() == 10 are the number-key hotbar window, and
+## indices 10-14 are background storage reached via the unlock/scroll. A test (or future
+## growth code) can `slots.resize(n)` directly to build a bigger inventory --
+## Array.resize() null-fills new typed-Object slots (a typed Array[ItemStack] still
+## permits null elements).
+var slots: Array[ItemStack] = [null, null, null, null, null, null, null, null, null, null, null, null, null, null, null]
 ## The slot index the Sword Hitbox currently reflects. Default 0 (key '1').
 var equipped_index: int = 0
 ## False (default) = locked: scroll/Q/E wrap within the hotbar window only.

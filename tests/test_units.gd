@@ -64,8 +64,8 @@ func _unit_tests(ctx: TestContext) -> void:
 func _inventory_unit_tests(ctx: TestContext) -> void:
 	# --- Default shape -------------------------------------------------------
 	var inv: Inventory = Inventory.new()
-	ctx.check(inv.slots.size() == 6 and inv.hotbar_size() == 6,
-		"Inventory default: slots.size()==6, hotbar_size()==6",
+	ctx.check(inv.slots.size() == 15 and inv.hotbar_size() == 10,
+		"Inventory default: slots.size()==15, hotbar_size()==10 (10-key hotbar window over 15 slots)",
 		"Inventory default shape wrong (slots=" + str(inv.slots.size()) + " hotbar=" + str(inv.hotbar_size()) + ")")
 
 	# --- add_tool: fills first-empty in caller-supplied priority order -------
@@ -75,8 +75,8 @@ func _inventory_unit_tests(ctx: TestContext) -> void:
 	ctx.check(added_sword and added_axe and added_pick
 			and inv.item_at(0) == Player.SWORD_DATA and inv.item_at(1) == Player.AXE_DATA
 			and inv.item_at(2) == Player.PICKAXE_DATA
-			and inv.item_at(3) == null and inv.item_at(4) == null and inv.item_at(5) == null,
-		"add_tool fills first-empty in priority order (sword,axe,pickaxe -> slots 0-2; 3-5 empty)",
+			and inv.item_at(3) == null and inv.item_at(13) == null and inv.item_at(14) == null,
+		"add_tool fills first-empty in priority order (sword,axe,pickaxe -> slots 0-2; 3-14 empty)",
 		"add_tool ordering wrong: " + str(inv.slots))
 
 	# --- equip_index: direct jump to ANY valid index, including empty --------
@@ -89,22 +89,24 @@ func _inventory_unit_tests(ctx: TestContext) -> void:
 		"equip_index jumps directly to a FILLED slot (index 1 -> axe)",
 		"equip_index to a filled slot wrong (index=" + str(inv.equipped_index) + " tool=" + str(inv.equipped_tool()) + ")")
 
-	# --- Cycle/wrap, LOCKED, 6-slot inventory (hotbar_size=6) -----------------
+	# --- Cycle/wrap, LOCKED, default 15-slot inventory (hotbar_size=10) -------
+	# Locked scroll wraps within the 10-slot hotbar window [0,10), never into the 10-14
+	# background-storage slots.
 	var lock_inv: Inventory = Inventory.new()
 	lock_inv.equip_index(0)
 	lock_inv.cycle(-1)
-	ctx.check(lock_inv.equipped_index == 5,
-		"locked cycle(-1) from index 0 wraps to 5 (last of a 6-slot hotbar, not index 9)",
+	ctx.check(lock_inv.equipped_index == 9,
+		"locked cycle(-1) from index 0 wraps to 9 (last of the 10-slot hotbar, not index 14)",
 		"locked cycle(-1) from 0 wrong (got " + str(lock_inv.equipped_index) + ")")
 	lock_inv.cycle(-1)
-	ctx.check(lock_inv.equipped_index == 4,
-		"locked cycle(-1) again -> 4",
+	ctx.check(lock_inv.equipped_index == 8,
+		"locked cycle(-1) again -> 8",
 		"locked cycle(-1) again wrong (got " + str(lock_inv.equipped_index) + ")")
-	lock_inv.equip_index(5)
+	lock_inv.equip_index(9)
 	lock_inv.cycle(1)
 	ctx.check(lock_inv.equipped_index == 0,
-		"locked cycle(+1) from 5 wraps forward to 0",
-		"locked cycle(+1) from 5 wrong (got " + str(lock_inv.equipped_index) + ")")
+		"locked cycle(+1) from 9 wraps forward to 0",
+		"locked cycle(+1) from 9 wrong (got " + str(lock_inv.equipped_index) + ")")
 
 	# --- Cycle/wrap, the FULL 10-key-ring example from design-inventory.md ---
 	var ring_inv: Inventory = Inventory.new()
@@ -179,29 +181,38 @@ func _inventory_unit_tests(ctx: TestContext) -> void:
 
 	# --- E1b item model: stacking, overflow, tool non-stacking, equip gating ---------
 	var WOOD: ItemData = load("res://data/wood.tres")
-	ctx.check(WOOD != null and WOOD.max_stack == 64 and WOOD.glyph == "W",
-		"wood.tres loads as ItemData (max_stack 64, glyph W)",
+	ctx.check(WOOD != null and WOOD.max_stack == 255 and WOOD.glyph == "W",
+		"wood.tres loads as ItemData (max_stack 255, glyph W)",
 		"wood.tres wrong (item=" + str(WOOD) + ")")
 
-	# Resource stacking: 10 then 60 wood -> slot0 count 64, slot1 count 6, two occupied.
+	# Resource stacking under the 255 cap: 10 then 60 wood now BOTH fit in slot0 (70 <= 255),
+	# so a single stack, slot1 empty. Then +200 more (270 total) tops slot0 to the 255 cap and
+	# spills the remaining 15 into slot1 -- exercising the max_stack boundary directly.
 	var stack_inv: Inventory = Inventory.new()
 	var wood_first: int = stack_inv.add_item(WOOD, 10)
 	var wood_second: int = stack_inv.add_item(WOOD, 60)
 	ctx.check(wood_first == 0 and wood_second == 0
-			and stack_inv.count_at(0) == 64 and stack_inv.item_at(0) == WOOD
-			and stack_inv.count_at(1) == 6 and stack_inv.item_at(1) == WOOD
-			and stack_inv.count_at(2) == 0,
-		"add_item stacks wood: 10 then 60 -> slot0=64, slot1=6, two occupied, both returns 0",
+			and stack_inv.count_at(0) == 70 and stack_inv.item_at(0) == WOOD
+			and stack_inv.count_at(1) == 0,
+		"add_item stacks wood under cap 255: 10 then 60 -> a single 70-stack in slot0, slot1 empty",
 		"wood stacking wrong (r1=" + str(wood_first) + " r2=" + str(wood_second)
 			+ " c0=" + str(stack_inv.count_at(0)) + " c1=" + str(stack_inv.count_at(1)) + ")")
+	var wood_third: int = stack_inv.add_item(WOOD, 200)
+	ctx.check(wood_third == 0
+			and stack_inv.count_at(0) == 255 and stack_inv.item_at(0) == WOOD
+			and stack_inv.count_at(1) == 15 and stack_inv.item_at(1) == WOOD
+			and stack_inv.count_at(2) == 0,
+		"add_item honors the 255 cap: +200 more (270 total) fills slot0 to 255 and spills 15 to slot1",
+		"wood 255-boundary spill wrong (r3=" + str(wood_third)
+			+ " c0=" + str(stack_inv.count_at(0)) + " c1=" + str(stack_inv.count_at(1)) + ")")
 
-	# Overflow: a 6-slot inventory holds 6*64=384 wood; adding 400 into a fresh one
-	# spills 16 back as the returned remainder.
+	# Overflow: a 15-slot inventory holds 15*255=3825 wood; adding 3830 into a fresh one fills
+	# every slot to the 255 cap and spills 5 back as the returned remainder.
 	var overflow_inv: Inventory = Inventory.new()
-	var overflow: int = overflow_inv.add_item(WOOD, 400)
-	ctx.check(overflow == 16 and overflow_inv.count_at(5) == 64,
-		"add_item overflow: 400 wood into 6 slots (cap 384) returns 16, last slot full",
-		"wood overflow wrong (remainder=" + str(overflow) + " c5=" + str(overflow_inv.count_at(5)) + ")")
+	var overflow: int = overflow_inv.add_item(WOOD, 3830)
+	ctx.check(overflow == 5 and overflow_inv.count_at(14) == 255,
+		"add_item overflow: 3830 wood into 15 slots (cap 3825) returns 5, last slot full at 255",
+		"wood overflow wrong (remainder=" + str(overflow) + " c14=" + str(overflow_inv.count_at(14)) + ")")
 
 	# Tools never merge: two swords land in two separate single-count slots.
 	var tool_inv: Inventory = Inventory.new()

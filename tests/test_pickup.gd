@@ -74,10 +74,10 @@ func run(ctx: TestContext) -> void:
 		"stacking on pickup wrong (wood=" + str(_count_of(p_stack, WOOD)) + ", slots=" + str(_slots_with(p_stack, WOOD)) + ")")
 
 	# --- Inventory-full leaves the drop untouched -----------------------------------------
-	# Slots 0-2 hold the auto-populated tools (max_stack 1); fill the 3 remaining slots with
-	# full Wood stacks (64 each) so nothing can merge and no slot is empty. A Stone in range
+	# Slots 0-2 hold the auto-populated tools (max_stack 1); fill the 12 remaining slots with
+	# full Wood stacks (255 each) so nothing can merge and no slot is empty. A Stone in range
 	# then overflows entirely: collect() returns count -> the drop is left, inventory unchanged.
-	p_full.inventory.add_item(WOOD, 64 * 3)
+	p_full.inventory.add_item(WOOD, 255 * 12)
 	var full_wood: int = _count_of(p_full, WOOD)
 	var stone_drop: Drop = _make_drop(holder, STONE, 1, p_full.global_position + Vector2(30.0, 0.0))
 	for _i in range(30):

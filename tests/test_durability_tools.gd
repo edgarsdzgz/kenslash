@@ -169,8 +169,8 @@ func run(ctx: TestContext) -> void:
 			and player.inventory.item_at(1) == Player.AXE_DATA
 			and player.inventory.item_at(2) == Player.PICKAXE_DATA
 			and player.inventory.item_at(3) == null and player.inventory.item_at(4) == null
-			and player.inventory.item_at(5) == null,
-		"player auto-populated at _ready(): sword,axe,pickaxe -> slots 0-2; 3-5 empty",
+			and player.inventory.item_at(14) == null,
+		"player auto-populated at _ready(): sword,axe,pickaxe -> slots 0-2; 3-14 empty",
 		"player inventory auto-populate order wrong: " + str(player.inventory.slots))
 
 	player.inventory.equip_index(1)

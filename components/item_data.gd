@@ -14,8 +14,8 @@ extends Resource
 ## Human-readable label (debug/logs; the HUD's fallback glyph is its first character).
 @export var display_name: String = "Item"
 ## How many of this item fit in ONE inventory slot. 1 = non-stackable (all tools); a
-## resource (Wood/Stone) uses 64. add_item() tops existing stacks to this cap before
-## spilling into new slots.
+## resource (Wood/Stone/Stick/Fiber) uses 255. add_item() tops existing stacks to this
+## cap before spilling into new slots.
 @export var max_stack: int = 1
 ## Short hotbar glyph (1-2 chars) shown in the slot widget. "" means "fall back to the
 ## display_name's first character" -- so tools (glyph "") still read S/A/P unchanged while

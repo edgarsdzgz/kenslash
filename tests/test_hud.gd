@@ -19,7 +19,7 @@ func run(ctx: TestContext) -> void:
 	var sw: Node2D = sw_scene.instantiate()
 	ctx.tree.root.add_child(sw)
 	# E3a HAZARD 2: streaming_world.tscn hard-authors this Player at (0,0), where the
-	# durability legs' harvest drops linger. This module asserts empty hotbar slots 3-5 and an
+	# durability legs' harvest drops linger. This module asserts empty hotbar slots 3-9 and an
 	# exact Wood count in slot 3; auto-collecting that origin litter would corrupt both. HUD
 	# tests presentation, not pickup, so suppress the magnet here (covered by test_pickup.gd).
 	# MUST run BEFORE the first physics frame below, or the magnet grabs a frame of litter.
@@ -89,14 +89,14 @@ func run(ctx: TestContext) -> void:
 		"HUD did not show 'Unarmed' for an empty slot (" + hud.tool_text() + ")")
 
 	# --- Hotbar: correct slot count + glyphs, highlight tracks equipped_index -------------
-	ctx.check(hud.hotbar_slot_count() == player.inventory.hotbar_size() and hud.hotbar_slot_count() == 6,
-		"HUD hotbar has hotbar_size() slot widgets (" + str(hud.hotbar_slot_count()) + " == 6)",
+	ctx.check(hud.hotbar_slot_count() == player.inventory.hotbar_size() and hud.hotbar_slot_count() == 10,
+		"HUD hotbar has hotbar_size() slot widgets (" + str(hud.hotbar_slot_count()) + " == 10)",
 		"HUD hotbar slot count wrong (" + str(hud.hotbar_slot_count()) + ")")
 	ctx.check(hud.slot_glyph_at(0) == "S" and hud.slot_glyph_at(1) == "A" and hud.slot_glyph_at(2) == "P",
 		"HUD hotbar tool slots show glyphs S/A/P",
 		"HUD hotbar tool glyphs wrong (" + hud.slot_glyph_at(0) + hud.slot_glyph_at(1) + hud.slot_glyph_at(2) + ")")
-	ctx.check(hud.slot_glyph_at(3) == "" and hud.slot_glyph_at(4) == "" and hud.slot_glyph_at(5) == "",
-		"HUD empty hotbar slots are blank",
+	ctx.check(hud.slot_glyph_at(3) == "" and hud.slot_glyph_at(4) == "" and hud.slot_glyph_at(9) == "",
+		"HUD empty hotbar slots (3-9) are blank",
 		"HUD empty hotbar slots not blank")
 
 	# --- E1b: a resource stack shows its glyph + count; a tool slot shows no count -----
@@ -124,6 +124,35 @@ func run(ctx: TestContext) -> void:
 	ctx.check(hud.highlighted_slot_index() == 2 and player.inventory.equipped_index == 2 and hud.highlighted_count() == 1,
 		"HUD highlight moved to slot 2 after the equip change (still exactly one highlighted)",
 		"HUD highlight did not move to slot 2 (idx " + str(hud.highlighted_slot_index()) + ", count " + str(hud.highlighted_count()) + ")")
+
+	# --- Change 2: item-name selection popup (Minecraft-style, holds ~2s then fades out) --------
+	# Slot 3 holds the 5 Wood added above. Selecting it (equipped_index 2 -> 3) is a real
+	# selection change, so the popup shows the item's display_name "Wood" while it is held.
+	player.inventory.equip_index(3)
+	player._apply_equipped()
+	await ctx.settle_idle()
+	ctx.check(hud.selection_text() == "Wood",
+		"selection popup shows the newly-equipped item's display_name right after selecting slot 3 (\"" + hud.selection_text() + "\")",
+		"selection popup wrong right after selecting slot 3 (\"" + hud.selection_text() + "\")")
+
+	# Hold (2.0s) + fade (0.4s) = ~2.4s; a real-time SceneTreeTimer of 3.0s (well over 2.4s, and
+	# on the SAME idle-frame clock the popup Tween uses) guarantees the fade completed and the
+	# label hid. Deterministic with margin -- no wall-clock reads, no frame-count guessing.
+	var fade_timer: SceneTreeTimer = ctx.tree.create_timer(3.0)
+	while fade_timer.time_left > 0.0:
+		await ctx.tree.process_frame
+	await ctx.settle_idle()
+	ctx.check(hud.selection_text() == "",
+		"selection popup faded out and hid after the ~2s hold + fade (\"" + hud.selection_text() + "\" empty)",
+		"selection popup did not fade/hide after 3s (\"" + hud.selection_text() + "\")")
+
+	# Selecting an EMPTY slot (slot 4) shows nothing -- the popup hides immediately.
+	player.inventory.equip_index(4)
+	player._apply_equipped()
+	await ctx.settle_idle()
+	ctx.check(hud.selection_text() == "",
+		"selecting an EMPTY slot shows no selection popup",
+		"empty-slot selection wrongly showed a popup (\"" + hud.selection_text() + "\")")
 
 	sw.queue_free()
 	await ctx.settle_idle()

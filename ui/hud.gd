@@ -20,9 +20,21 @@ extends CanvasLayer
 const HIGHLIGHT_COLOR: Color = Color(0.95, 0.85, 0.35, 0.95)
 const SLOT_COLOR: Color = Color(0.18, 0.18, 0.22, 0.9)
 const SLOT_SIZE: Vector2 = Vector2(34, 34)
+## Item-name selection popup (Minecraft-style): how long the newly-selected item's name is
+## held at full opacity, then how long it takes to fade to transparent. Time-based via a Tween
+## (never Time/OS wall-clock) so it advances identically headless.
+const SELECTION_HOLD: float = 2.0
+const SELECTION_FADE: float = 0.4
 
 var _player: Player = null
 var _health: HealthComponent = null
+## Selection-popup change detection: the equipped index + the item identity in that slot as of
+## the last refresh. Initialized in bind() to the CURRENT values so the popup does NOT fire on
+## the initial bind -- only on a real selection change (index moves, or the equipped slot's item
+## changes identity) afterward. _selection_tween holds the active hold->fade->hide animation.
+var _last_equipped_index: int = -1
+var _last_equipped_item: ItemData = null
+var _selection_tween: Tween = null
 ## Built once by bind() from the inventory's hotbar window; parallel arrays so a test (or
 ## the per-frame refresh) can read a slot's glyph/highlight by index.
 var _slot_panels: Array[ColorRect] = []
@@ -43,6 +55,10 @@ var _slot_counts: Array[Label] = []
 ## the player stands on an interactable (a bush), reading player.interaction_prompt() each frame;
 ## hidden when nothing is in reach. Presentation only -- the interaction lives in player.gd.
 @onready var _prompt_label: Label = $PromptLabel
+## Item-name selection popup (Change 2): shown just ABOVE the interaction prompt (a bit higher y
+## so the two never overlap), it names the item in the newly-selected hotbar slot, held then
+## faded out. Presentation only -- driven entirely by reading inventory.equipped_index/item.
+@onready var _selection_label: Label = $SelectionLabel
 
 
 ## Point the HUD at the live player: store the ref, subscribe to the health damage EVENT,
@@ -53,6 +69,10 @@ func bind(player: Player) -> void:
 	_health = player.get_node("HealthComponent") as HealthComponent
 	if _health != null and not _health.damaged.is_connected(_on_player_damaged):
 		_health.damaged.connect(_on_player_damaged)
+	# Seed the selection-popup trackers to the CURRENT equipped slot/item so the very first
+	# refresh sees "no change" -- the popup only fires on genuine selection changes afterward.
+	_last_equipped_index = _player.inventory.equipped_index
+	_last_equipped_item = _player.inventory.equipped_item()
 	_build_hotbar()
 	_refresh()
 
@@ -76,6 +96,41 @@ func _refresh() -> void:
 	_refresh_tool()
 	_refresh_hotbar()
 	_refresh_prompt()
+	_refresh_selection()
+
+
+## Item-name selection popup (Change 2): when the equipped slot changes -- a new index, OR the
+## same index now holding a different item -- pop the newly-selected item's display_name in the
+## SelectionLabel (above the prompt), reset it to full opacity, and (re)start a Tween that holds
+## for SELECTION_HOLD then fades over SELECTION_FADE and hides. An empty new selection hides the
+## label (and kills any running fade). Any prior tween is killed first so rapid selection changes
+## restart the hold cleanly. No change since the last refresh -> nothing happens (the fade runs).
+func _refresh_selection() -> void:
+	var inv: Inventory = _player.inventory
+	var idx: int = inv.equipped_index
+	var item: ItemData = inv.equipped_item()
+	if idx == _last_equipped_index and item == _last_equipped_item:
+		return
+	_last_equipped_index = idx
+	_last_equipped_item = item
+	if _selection_tween != null and _selection_tween.is_valid():
+		_selection_tween.kill()
+		_selection_tween = null
+	if item == null:
+		_selection_label.visible = false
+		return
+	_selection_label.text = item.display_name
+	_selection_label.modulate.a = 1.0
+	_selection_label.visible = true
+	_selection_tween = create_tween()
+	_selection_tween.tween_interval(SELECTION_HOLD)
+	_selection_tween.tween_property(_selection_label, "modulate:a", 0.0, SELECTION_FADE)
+	_selection_tween.tween_callback(_hide_selection_label)
+
+
+## Tween tail: hide the popup once it has fully faded (called by the selection Tween's callback).
+func _hide_selection_label() -> void:
+	_selection_label.visible = false
 
 
 ## Interaction prompt (E4): if the player has a nearby interactable, show "[<key>] <verb>" just
@@ -195,6 +250,15 @@ func prompt_text() -> String:
 
 func tool_text() -> String:
 	return _tool_label.text
+
+
+## The item-name selection popup currently SHOWN, or "" once it has faded/hidden. Reads the
+## rendered text only while the label is visible AND still opaque (alpha > 0), so a test sees
+## exactly what a player would across the hold->fade->hide lifecycle.
+func selection_text() -> String:
+	if _selection_label.visible and _selection_label.modulate.a > 0.0:
+		return _selection_label.text
+	return ""
 
 
 func hotbar_slot_count() -> int:

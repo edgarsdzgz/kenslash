@@ -5,6 +5,6 @@
 [resource]
 script = ExtResource("1_item")
 display_name = "Fiber"
-max_stack = 64
-glyph = "Y"
+max_stack = 255
+glyph = "F"
 color = Color(0.75, 0.8, 0.55, 1)
