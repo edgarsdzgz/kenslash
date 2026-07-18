@@ -1,0 +1,18 @@
+# Godot 4 -- ignore ONLY the regenerable import/editor cache.
+# The .godot/ folder is machine-specific and rebuilt on first open / --import.
+.godot/
+
+# Godot export output (uncomment / adjust if you set an export dir later)
+# /build/
+# *.exe
+# *.pck
+
+# IMPORTANT: do NOT ignore *.import or *.uid -- those are stable resource
+# references that must be committed, or a fresh clone breaks (see
+# knowledge base: tooling/version-control.md). They are intentionally tracked.
+
+# OS / editor cruft
+.DS_Store
+Thumbs.db
+desktop.ini
+*~
