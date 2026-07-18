@@ -7,3 +7,4 @@ script = ExtResource("1_item")
 display_name = "Wood"
 max_stack = 64
 glyph = "W"
+color = Color(0.4, 0.26, 0.13, 1)

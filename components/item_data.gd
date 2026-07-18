@@ -21,5 +21,10 @@ extends Resource
 ## display_name's first character" -- so tools (glyph "") still read S/A/P unchanged while
 ## resources can pin an explicit letter (W/S) independent of their display_name.
 @export var glyph: String = ""
+## Tint a world Drop of this item paints its little ground primitive (E2, design-items.md
+## "Drops"). Purely visual -- a mini brown square for Wood, a small gray bit for Stone --
+## so a drop reads as a shrunk version of its resource. The default gray covers items that
+## do not (yet) drop as world entities (tools).
+@export var color: Color = Color(0.6, 0.6, 0.6, 1)
 
 # Verified against: Godot 4.7.1 (2026-07-18)

@@ -88,8 +88,11 @@ func _run() -> void:
 	# --- Playable loop D2 HUD (self-contained: instantiates streaming_world.tscn) -
 	await TestHud.new().run(ctx)
 
+	# --- Harvest yield E2 (self-contained: own tree/rock instances under private holders) -
+	await TestHarvest.new().run(ctx)
+
 	if ctx.all_pass:
-		print("[PASS] smoke_slash: combat + combo + death + bodies + input seam + durability + streaming + playable + hud -- all passed")
+		print("[PASS] smoke_slash: combat + combo + death + bodies + input seam + durability + streaming + playable + hud + harvest -- all passed")
 		quit(0)
 	else:
 		_fail("one or more assertions failed")

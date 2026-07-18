@@ -66,11 +66,14 @@ to interact with yet.
 - **E1b**: `ItemData` base + `ToolData` extends it; `ItemStack`; generalize `Inventory`
   to stacks + `add_item`; Wood/Stone resource items; equip only tools; HUD shows a
   stack's count. Headless-verified (stacking, tool non-stacking, equip still works).
-- **E2**: harvest yield -- tree-on-fell, mineral-per-hit -- spawning drops (spawn a Drop
-  at the harvest point via the existing chokepoint).
-- **E3**: `Drop` entity + magnetic auto-pickup + 5-min lifetime + chunk-persist
-  (`Kind.DROP` in ChunkData, age-while-loaded). Headless-verified (walk-over pickup adds
-  to inventory; lifetime despawn; persists across unload/reload).
+- **E2**: harvest yield -- the `Drop` as a VISUAL + DATA carrier ONLY (a small tinted ground
+  primitive holding item + count; no Area2D / Timer / persistence) PLUS the yield rules that
+  spawn it from the existing harvest hooks: tree-on-fell bursts wood, mineral-per-hit drops
+  stone. A drop just spawns, is visible, carries item+count, and sits there. Headless-verified.
+- **E3**: add BEHAVIOR to that Drop -- magnetic auto-pickup (pickup Area2D + pull), 5-min
+  lifetime cull (age-while-loaded), and chunk-persist (`Kind.DROP` in ChunkData, write-back on
+  unload). Headless-verified (walk-over pickup adds to inventory; lifetime despawn; persists
+  across unload/reload).
 - **E4** (later): 'f' interaction framework + first interactables (a door / chest).
 
 *Verified against: Godot 4.7.1. Last updated: 2026-07-18*
