@@ -25,6 +25,14 @@ extends RefCounted
 ## UNARMED_ATK/UNARMED_COLOR) stay on Player and are read here as Player.X, so the
 ## const references in the tests do not churn.
 
+## Fallback blade silhouette (the pre-shapes rectangle: x[-15,15] y[-3,3]) used when a tool
+## defines no blade_shape, and for the unarmed fist. Equip always sets the Blade polygon to
+## either the tool's shape or this, so switching from a shaped tool back to a shapeless one (or
+## to unarmed) restores the plain blade instead of leaving the previous tool's outline behind.
+static var DEFAULT_BLADE_SHAPE: PackedVector2Array = PackedVector2Array([
+	Vector2(-15, -3), Vector2(15, -3), Vector2(15, 3), Vector2(-15, 3),
+])
+
 ## Inventory & hotbar (design-inventory.md). Pure logic object, standalone testable
 ## (`Inventory.new()` with no player/scene needed). Reached from the player via a
 ## forwarding getter (`player.inventory`) so a test can drive equip-by-slot-index
@@ -123,6 +131,10 @@ func equip_tool(tool: ToolData) -> void:
 	_sword.wear_max = tool.wear_max
 	_sword.harvest_type = tool.harvest_type
 	_blade.color = tool.blade_color
+	# Swap the Blade's SILHOUETTE to this tool's shape (a pointed sword, a broad axe head,
+	# a double-pointed pick) -- presentation only, the invisible Hitbox rectangle is
+	# unchanged. An empty blade_shape falls back to the plain rectangle.
+	_blade.polygon = tool.blade_shape if not tool.blade_shape.is_empty() else DEFAULT_BLADE_SHAPE
 
 
 ## Inventory & hotbar chokepoint (design-inventory.md): reads whatever the inventory
@@ -158,6 +170,8 @@ func _apply_unarmed() -> void:
 	_sword.wear_max = 0
 	_sword.harvest_type = Harvest.Type.NONE
 	_blade.color = Player.UNARMED_COLOR
+	# No tool: restore the plain rectangle blade (the fist swing), never a stale tool outline.
+	_blade.polygon = DEFAULT_BLADE_SHAPE
 
 
 ## Look up (or lazily create) the RUNTIME DurabilityComponent for `tool`, keyed by its

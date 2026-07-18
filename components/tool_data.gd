@@ -26,5 +26,12 @@ extends ItemData
 @export var harvest_type: int = Harvest.Type.NONE
 ## Blade tint when this tool is equipped, so the active tool reads at a glance.
 @export var blade_color: Color = Color(0.85, 0.9, 1.0, 1.0)
+## The swung weapon's SILHOUETTE, as a Polygon2D outline in blade-local space (+x points
+## outward along the swing, the current rectangle spans x[-15,15] y[-3,3]). Lets each tool
+## read as its own shape -- a pointed sword blade, a broad axe head, a double-pointed pick --
+## instead of one recolored rectangle. Presentation only: the invisible Sword Hitbox
+## rectangle (gameplay reach) is unchanged. EMPTY -> the equipment falls back to the default
+## rectangle (so a shapeless/legacy tool and the unarmed fist still render).
+@export var blade_shape: PackedVector2Array = PackedVector2Array()
 
 # Verified against: Godot 4.7.1 (2026-07-18)

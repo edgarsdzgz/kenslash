@@ -180,6 +180,11 @@ func run(ctx: TestContext) -> void:
 			and player._sword.harvest_type == Player.AXE_DATA.harvest_type,
 		"equip_index(1) + _apply_equipped() switched the Sword Hitbox to the axe's stats (atk " + str(Player.AXE_DATA.atk) + ", harvest CHOP)",
 		"equip-by-index to axe did not apply axe stats (atk=" + str(player._sword.atk) + " harvest=" + str(player._sword.harvest_type) + ")")
+	# Equip also swaps the Blade SILHOUETTE to this tool's shape (presentation; the Hitbox is
+	# unchanged). The axe carries its broad-head outline.
+	ctx.check(player._blade.polygon == Player.AXE_DATA.blade_shape and not Player.AXE_DATA.blade_shape.is_empty(),
+		"equipping the axe swapped the Blade to the axe silhouette (" + str(player._blade.polygon.size()) + " pts)",
+		"axe silhouette not applied to the Blade (" + str(player._blade.polygon) + ")")
 
 	player.inventory.equip_index(3)  # an EMPTY slot -- equips "nothing"
 	player._apply_equipped()
@@ -187,10 +192,17 @@ func run(ctx: TestContext) -> void:
 			and player._sword.harvest_type == Harvest.Type.NONE,
 		"equipping an EMPTY slot applies the unarmed fallback (atk " + str(Player.UNARMED_ATK) + ", no durability, no harvest)",
 		"unarmed fallback wrong (atk=" + str(player._sword.atk) + " durability=" + str(player._sword.durability) + " harvest=" + str(player._sword.harvest_type) + ")")
+	# Unarmed restores the DEFAULT rectangle blade -- never leaves the axe's outline behind.
+	ctx.check(player._blade.polygon == Equipment.DEFAULT_BLADE_SHAPE,
+		"the unarmed fist restored the default rectangle blade",
+		"unarmed did not restore the default blade shape (" + str(player._blade.polygon) + ")")
 
 	# Restore the default (sword, slot 0) so nothing downstream is affected.
 	player.inventory.equip_index(0)
 	player._apply_equipped()
+	ctx.check(player._blade.polygon == Player.SWORD_DATA.blade_shape and not Player.SWORD_DATA.blade_shape.is_empty(),
+		"re-equipping the sword swapped the Blade to the sword silhouette",
+		"sword silhouette not applied on re-equip (" + str(player._blade.polygon) + ")")
 
 	# --- s. Body-facing flip: side_facing ignores pure up/down, aim does not ----
 	# Drives the player via input_override (FrameInput), not real keys, so this is
