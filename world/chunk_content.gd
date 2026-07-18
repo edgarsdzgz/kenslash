@@ -21,6 +21,10 @@ class_name ChunkContent
 const TREE_SCENE: PackedScene = preload("res://world/tree.tscn")
 const ROCK_SCENE: PackedScene = preload("res://world/rock.tscn")
 const ENEMY_SCENE: PackedScene = preload("res://enemy/enemy.tscn")
+## The forageable bush scene (E4). A generated interactable (unlike DROP): spawned one-per
+## BUSH entry, harvested by the player's Interaction subsystem, freed on harvest -> the
+## deactivate is_instance_valid path flags its entry `gone`, so a harvested bush never respawns.
+const BUSH_SCENE: PackedScene = preload("res://world/bush.tscn")
 ## The Drop scene (E3c). Unlike the three above, a DROP entry is never generated -- it is a pure
 ## delta the ChunkManager snapshots from live Drop children on unload (drop_entry, below) and
 ## respawns here on reload, its item re-load()ed by resource_path and its aging RESUMED.
@@ -84,6 +88,10 @@ static func spawn(entry: Dictionary) -> Node2D:
 			drop.lifetime = float(d_state.get("lifetime", 300.0))
 			drop._age = float(d_state.get("age", 0.0))
 			node = drop
+		ChunkData.Kind.BUSH:
+			# A forageable bush (E4): no per-entry state to configure -- yields are authored on
+			# the scene's exports. Positioned at local_pos by the caller like every other Kind.
+			node = BUSH_SCENE.instantiate()
 		_:
 			node = Node2D.new()
 
@@ -129,6 +137,11 @@ static func capture(node: Node, entry: Dictionary) -> bool:
 			# Drops are NOT captured through this paired integrity/hp loop -- the ChunkManager
 			# REBUILDS drop entries wholesale from live Drop children on unload (drop_entry, so a
 			# picked-up/aged-out drop simply is not swept and vanishes). Never touch the entry here.
+			return false
+		ChunkData.Kind.BUSH:
+			# A bush carries NO partial state: it is either intact (still a live node -> nothing to
+			# capture) or harvested (queue_freed -> the ChunkManager's is_instance_valid path flags
+			# the entry `gone`, exactly like a felled tree). So capture is always a no-op here.
 			return false
 		_:
 			return false

@@ -112,8 +112,11 @@ func _run() -> void:
 	# --- Drop chunk-persistence E3c (self-contained: own ChunkManager in a remote region) -
 	await TestDropPersist.new().run(ctx)
 
+	# --- Forage bushes + 'f'-interaction E4 (self-contained: own players/bushes remote) ---
+	await TestForage.new().run(ctx)
+
 	if ctx.all_pass:
-		print("[PASS] smoke_slash: combat + combo + death + bodies + input seam + durability + streaming + playable + hud + harvest + pickup + lifetime + drop-persist -- all passed")
+		print("[PASS] smoke_slash: combat + combo + death + bodies + input seam + durability + streaming + playable + hud + harvest + pickup + lifetime + drop-persist + forage -- all passed")
 		quit(0)
 	else:
 		_fail("one or more assertions failed")

@@ -17,6 +17,9 @@ const MINERALS_MIN: int = 1
 const MINERALS_MAX: int = 3
 ## Probability a chunk also seeds a single enemy spawn.
 const ENEMY_CHANCE: float = 0.35
+## Forageable bushes per chunk (E4, design-items.md "Interaction 'f'"). randi_range inclusive.
+const BUSH_MIN: int = 1
+const BUSH_MAX: int = 3
 ## Starting integrity baked into a fresh mineral's mutable state.
 const FRESH_MINERAL_INTEGRITY: int = 4
 
@@ -50,6 +53,17 @@ static func generate(coord: Vector2i, world_seed: int) -> ChunkData:
 	if rng.randf() < ENEMY_CHANCE:
 		cd.entries.append({
 			"type": ChunkData.Kind.ENEMY,
+			"local_pos": _rand_local(rng),
+			"state": {},
+		})
+
+	# Bushes are drawn LAST (E4): appending after the enemy draw keeps every existing
+	# TREE/MINERAL/ENEMY rng draw at the SAME position in the seeded sequence, so their
+	# deterministic counts/positions are byte-unchanged -- only new draws are consumed here.
+	var bush_count: int = rng.randi_range(BUSH_MIN, BUSH_MAX)
+	for _i in bush_count:
+		cd.entries.append({
+			"type": ChunkData.Kind.BUSH,
 			"local_pos": _rand_local(rng),
 			"state": {},
 		})

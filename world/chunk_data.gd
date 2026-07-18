@@ -17,7 +17,9 @@ extends RefCounted
 ## DELTA kind: ChunkGenerator never emits one -- a dropped item becomes a DROP entry only on
 ## its chunk's unload (ChunkManager snapshots live Drop children), respawned on reload with its
 ## remaining lifetime. So drops are cheap serializable DATA when dormant, bounded by the E3b cull.
-enum Kind { TREE, MINERAL, ENEMY, DROP }
+## BUSH (E4) IS generated (a forageable interactable); a harvested bush is queue_freed, so the
+## deactivate is_instance_valid path flags its entry `gone` (never respawns), like a felled tree.
+enum Kind { TREE, MINERAL, ENEMY, DROP, BUSH }
 
 ## This chunk's grid coordinate (WorldScale.world_to_chunk space).
 var coord: Vector2i = Vector2i.ZERO

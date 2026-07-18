@@ -88,6 +88,7 @@ var _attacking: bool = false
 ## _sword_broken getters + equip_tool / _apply_equipped) keeps `player.X` reads working
 ## for the tests and the HUD without them knowing the subsystem moved.
 var _equipment: Equipment = null
+var _interaction: Interaction = null  ## E4 (components/interaction.gd): pure-logic 'f'-harvest RefCounted (node-free like _equipment), made in _ready.
 ## Controlled movement velocity, kept separate from knockback so the two do not
 ## compound frame to frame.
 var _move_velocity: Vector2 = Vector2.ZERO
@@ -164,6 +165,7 @@ func _ready() -> void:
 	# prior in-line _ready seeding exactly.
 	_equipment = Equipment.new()
 	_equipment.setup(self, _sword, _blade, $SwordDurability, $AxeDurability, $PickaxeDurability)
+	_interaction = Interaction.new()  # E4: RefCounted like _equipment; scans "interactables" per frame.
 
 
 ## Equip a tool (facade -> Equipment.equip_tool). Directly callable -- a headless test
@@ -176,6 +178,13 @@ func equip_tool(tool: ToolData) -> void:
 ## Directly callable by a test after driving inventory.equip_index(...).
 func _apply_equipped() -> void:
 	_equipment.apply_equipped()
+
+
+## E4 facade -> Interaction: HUD reads interaction_prompt(); interact() harvests the nearby one (test-callable + action-button path).
+func interaction_prompt() -> String:
+	return _interaction.current_prompt()
+func interact() -> void:
+	_interaction.try_interact(self)
 
 
 func _physics_process(delta: float) -> void:
@@ -193,6 +202,7 @@ func _physics_process(delta: float) -> void:
 	# _simulate seam: grabbing ground loot is a LOCAL world interaction, not networked
 	# simulation state a peer/AI would replay -- see _process_pickups.
 	_process_pickups(delta)
+	_interaction.process(self)  # E4: nearby scan + 'f'-harvest, node-free like the pickup pass (InputMap, not FrameInput).
 
 
 ## Mouse-wheel hotbar selection is an equipment concern; forward the event verbatim to

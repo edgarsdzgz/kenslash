@@ -39,6 +39,10 @@ var _slot_counts: Array[Label] = []
 ## top-left health/tool Backdrop. A CenterContainer anchored to the bottom edge keeps it
 ## horizontally centered and re-centers automatically on window resize -- no manual math.
 @onready var _hotbar: HBoxContainer = $HotbarAnchor/HotbarPanel/Hotbar
+## Interaction prompt (E4, design-items.md "Interaction 'f'"): shown just above the hotbar when
+## the player stands on an interactable (a bush), reading player.interaction_prompt() each frame;
+## hidden when nothing is in reach. Presentation only -- the interaction lives in player.gd.
+@onready var _prompt_label: Label = $PromptLabel
 
 
 ## Point the HUD at the live player: store the ref, subscribe to the health damage EVENT,
@@ -71,6 +75,31 @@ func _refresh() -> void:
 	_refresh_health()
 	_refresh_tool()
 	_refresh_hotbar()
+	_refresh_prompt()
+
+
+## Interaction prompt (E4): if the player has a nearby interactable, show "[<key>] <verb>" just
+## above the hotbar, where <key> is whatever key is currently bound to the_action_button (derived
+## from the InputMap, so a rebind updates the prompt for free); otherwise hide the label.
+func _refresh_prompt() -> void:
+	var prompt: String = _player.interaction_prompt()
+	if prompt == "":
+		_prompt_label.text = ""
+		_prompt_label.visible = false
+		return
+	_prompt_label.text = "[%s] %s" % [_action_key_text(), prompt]
+	_prompt_label.visible = true
+
+
+## Human-readable key currently bound to the_action_button: the first InputEventKey's keycode
+## (physical preferred, since the action is authored physical) as a label. "?" if none is bound.
+func _action_key_text() -> String:
+	for ev in InputMap.action_get_events("the_action_button"):
+		if ev is InputEventKey:
+			var k: InputEventKey = ev as InputEventKey
+			var code: int = k.physical_keycode if k.physical_keycode != 0 else k.keycode
+			return OS.get_keycode_string(code)
+	return "?"
 
 
 func _refresh_health() -> void:
@@ -156,6 +185,12 @@ func _slot_glyph(item: ItemData) -> String:
 
 func health_text() -> String:
 	return _health_label.text
+
+
+## The interaction prompt currently SHOWN (e.g. "[F] Harvest"), or "" when the label is hidden.
+## Reads the rendered text so a test sees exactly what a player would (E4).
+func prompt_text() -> String:
+	return _prompt_label.text if _prompt_label.visible else ""
 
 
 func tool_text() -> String:

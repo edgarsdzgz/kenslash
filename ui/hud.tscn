@@ -36,6 +36,17 @@ value = 5.0
 [node name="ToolLabel" type="Label" parent="Backdrop/Column"]
 text = "Unarmed"
 
+[node name="PromptLabel" type="Label" parent="."]
+anchor_left = 0.0
+anchor_top = 1.0
+anchor_right = 1.0
+anchor_bottom = 1.0
+offset_top = -98.0
+offset_bottom = -72.0
+horizontal_alignment = 1
+vertical_alignment = 1
+visible = false
+
 [node name="HotbarAnchor" type="CenterContainer" parent="."]
 anchor_left = 0.0
 anchor_top = 1.0
