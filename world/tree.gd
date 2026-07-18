@@ -64,11 +64,32 @@ func _on_integrity_changed(current: int, max_val: int) -> void:
 	print("[tree] integrity ", current, "/", max_val)
 
 
-## Integrity hit 0: the tree is felled -- burst its wood (E2), then remove the trunk.
+## Integrity hit 0: the tree is felled -- burst its wood (E2), tip the trunk over, then free.
 func _on_broke() -> void:
-	print("[tree] felled -- destroyed")
+	print("[tree] felled")
 	_spawn_yield()
-	queue_free()
+	_fall_and_free()
+
+
+## Fell animation: the trunk tips 90deg to the SIDE, AWAY from the player, pivoting at its
+## base (the Body's origin sits at the trunk foot -- the "break" point), then the tree frees.
+## The solid body is dropped immediately so the player can walk through the falling/downed
+## trunk. Direction: player to our LEFT -> fall right (+90deg); player to our RIGHT -> fall
+## left (-90deg); default right when no player is found. Ease-in so it accelerates like a real
+## fall. Runs a tween so a headless test just waits for the node to free (watchdog).
+func _fall_and_free() -> void:
+	var body_shape: CollisionShape2D = get_node_or_null("CollisionShape2D") as CollisionShape2D
+	if body_shape != null:
+		body_shape.set_deferred("disabled", true)
+	var fall_dir: float = 1.0
+	var p: Node2D = get_tree().get_first_node_in_group("player") as Node2D
+	if p != null and p.global_position.x > global_position.x:
+		fall_dir = -1.0
+	var tween: Tween = create_tween()
+	tween.tween_property(_body, "rotation", fall_dir * PI / 2.0, 0.55) \
+		.set_ease(Tween.EASE_IN).set_trans(Tween.TRANS_QUAD)
+	tween.tween_interval(0.25)  # lie fallen for a beat before it vanishes
+	tween.tween_callback(queue_free)
 
 
 ## Burst `yield_amount` count-1 Wood Drops around the stump on fell (E2, design-items.md).

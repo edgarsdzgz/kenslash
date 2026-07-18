@@ -264,16 +264,16 @@ func attack() -> void:
 	var half: float = deg_to_rad(arc_degrees / 2.0)
 
 	match _combo_index:
-		0:
-			# Hit 1: arc sweep, direction A (+half -> -half).
-			_sword_pivot.rotation = base + half
+		0, 1:
+			# Arc hits (1 & 2): an OVERHEAD chop -- always sweeps from the TOP of the arc down
+			# to the bottom ON SCREEN, for ANY facing. Screen +y is DOWN, so we start at the
+			# endpoint that is higher (smaller sin) and finish at the lower one. A fixed
+			# +half -> -half instead reads top-down for one facing but BOTTOM-UP for its mirror
+			# -- the "backwards" swing when facing right. Both combo arcs strike downward.
+			var arc: Array = _overhead_arc(base, half)
+			_sword_pivot.rotation = arc[0]
 			_begin_swing()
-			await _sweep_to(base - half)
-		1:
-			# Hit 2: arc sweep, direction B (-half -> +half), the opposite way.
-			_sword_pivot.rotation = base - half
-			_begin_swing()
-			await _sweep_to(base + half)
+			await _sweep_to(arc[1])
 		2:
 			# Hit 3: lunge. Blade straight along facing; nudge the player forward
 			# through the existing decaying-knockback system so it slides and stops.
@@ -297,6 +297,19 @@ func attack() -> void:
 	else:
 		_combo_index = 0
 	_attacking = false
+
+
+## Return [start, end] pivot rotation for an OVERHEAD arc (top -> bottom on screen) spanning
+## +/- half around `base`. Screen +y is DOWN, so the higher endpoint is the one with the
+## smaller sin; start there so every facing reads as a downward chop instead of a
+## facing-dependent bottom-to-top swing. The +/- half endpoints are unchanged -- only which
+## one the sweep STARTS from. Ties (facing straight up/down) fall back to base-half -> base+half.
+func _overhead_arc(base: float, half: float) -> Array:
+	var a: float = base - half
+	var b: float = base + half
+	if sin(a) <= sin(b):
+		return [a, b]
+	return [b, a]
 
 
 ## Enable the blade collision and show the silver rectangle for a swing.

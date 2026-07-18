@@ -58,8 +58,13 @@ func run(ctx: TestContext) -> void:
 	ctx.check(near_ok,
 		"felled-tree wood drops landed near the stump (<= 64 px)",
 		"felled-tree wood drops landed too far from the stump")
+	# The felled tree now plays a tip-over animation before freeing, so wait it out (watchdog)
+	# instead of assuming an immediate queue_free.
+	var fell_watchdog: SceneTreeTimer = ctx.tree.create_timer(3.0)
+	while is_instance_valid(tree_node) and fell_watchdog.time_left > 0.0:
+		await ctx.tree.physics_frame
 	ctx.check(not is_instance_valid(tree_node),
-		"tree freed after felling",
+		"tree freed after the fell animation",
 		"tree not freed after felling")
 
 	# --- DROP CARRIES COLOR (reuse a live wood drop from the burst above) -----
