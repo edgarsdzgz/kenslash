@@ -2092,3 +2092,112 @@ refresh runs before you read. This also let the whole "does the UI reflect state
 be answered without growing player.gd or adding a single game-facing signal for the UI.
 
 Verified against: Godot 4.7.1 (2026-07-18)
+
+---
+
+# Sword Slash -- E1a: Equipment extraction (debt paydown, PURE refactor)
+
+Prerequisite for Milestone E (design-items.md E1a). `player/player.gd` had grown to 551
+lines -- OVER the CONVENTIONS.md Rule 1 hard cap of 500 -- carrying TWO jobs: the character
+controller AND the whole tool/inventory subsystem. This pass extracted the second job into
+`components/equipment.gd`. ZERO behavior change: the anchor is the existing 142 [PASS]
+assertions, which must print byte-for-byte identical. NOT the item system (that is E1b) --
+no ItemData/ItemStack/stacking/drops were added here.
+
+## What MOVED (player.gd -> components/equipment.gd)
+
+- State: `inventory` (the `Inventory`), `_active_tool`, `_active_durability`, `_sword_broken`,
+  `_durability_by_tool`.
+- Methods: `equip_tool()`, `_apply_equipped()` -> `apply_equipped()`, `_apply_unarmed()`,
+  `_durability_for()`, `_on_tool_broke()`, `_process_inventory_input()` ->
+  `process_inventory_input()`, and the mouse-wheel handler (`_unhandled_input` ->
+  `handle_wheel_input()`).
+- The seeding that was in `player._ready` (seed the per-tool durability map with the three
+  scene-authored components, auto-populate the inventory sword/axe/pickaxe, equip the sword
+  by default) moved into `Equipment.setup()`.
+
+## What STAYED on player.gd
+
+- Movement (`_simulate`, `_gather_input`, side/facing), the arc/lunge 3-hit combo (`attack`,
+  `_sweep_to`, `_begin_swing`, `_end_swing`, `_combo_index`, `_attacking`, `_combo_reset_timer`),
+  hit feedback (knockback/blink/flash/i-frames), death/respawn, the FrameInput seam.
+- The Sword Hitbox `@onready var _sword` and the `_blade` Polygon2D STAY here (combat + death
+  use `_blade`; tests read `player._sword.atk`). The Equipment holds refs to these SAME nodes.
+- The tool-data consts (`SWORD_DATA`/`AXE_DATA`/`PICKAXE_DATA`, `UNARMED_ATK`/`UNARMED_COLOR`)
+  stay on Player -- tests use `Player.SWORD_DATA` etc.; Equipment reads them as `Player.X`.
+  Leaving them put avoided churning every const reference in the test suite.
+
+## The facade (kept tests + HUD working with ZERO test/HUD edits)
+
+player.gd forwards to `_equipment`:
+- `var inventory: Inventory: get: return _equipment.inventory` (property getter)
+- `var _active_durability: DurabilityComponent: get: return _equipment._active_durability`
+- `var _sword_broken: bool: get: return _equipment._sword_broken` (read in `attack()`'s gate
+  and by a durability test)
+- `func equip_tool(tool): _equipment.equip_tool(tool)` and
+  `func _apply_equipped(): _equipment.apply_equipped()` (thin forwarders)
+- `func _unhandled_input(event): _equipment.handle_wheel_input(event)` (thin forwarder)
+
+So the tests' `player.inventory` / `player.equip_tool(...)` / `player._apply_equipped()` /
+`player._active_durability` / `player._sword_broken` / `player._sword.X` and the HUD's
+`player.inventory` / `player._active_durability` reads all keep working untouched. NO test
+file and NO HUD file were edited.
+
+## THE SNAG: why Equipment is a RefCounted, not a Node
+
+The task's first-draft shape was `class_name Equipment extends Node` added as a player child.
+Implemented that way, the suite still ran 142/0 -- but the anchor diff was NOT empty:
+
+```
+< ...returned to baseline 1181 -- deactivated chunks' REAL content subtrees were FREED...
+> ...returned to baseline 1182 -- deactivated chunks' REAL content subtrees were FREED...
+```
+
+The streaming zero-orphan-leak assertion (tests/test_streaming.gd) prints the LITERAL global
+`Performance.OBJECT_NODE_COUNT` baseline in its PASS message. Adding one Equipment Node to the
+persistent shared main.tscn Player bumped that count 1181 -> 1182, changing the message string
+even though the assertion still passed. Making Equipment an orphan Node instead would have hit
+the sibling ORPHAN-count message the same way.
+
+Fix: `Equipment extends RefCounted`. A RefCounted is invisible to BOTH node monitors
+(OBJECT_NODE_COUNT and OBJECT_ORPHAN_NODE_COUNT), so the count messages are untouched -- the
+refactor is genuinely behavior-neutral. Consequences, all behavior-preserving:
+- The player keeps the frame/input seam: its `_physics_process` calls
+  `process_inventory_input()` (same physics-frame cadence as before) and its `_unhandled_input`
+  forwards the wheel event to `handle_wheel_input()`.
+- On-demand durability components (`_durability_for`) are `add_child`'d onto a `_host` (the
+  player, passed into `setup()`) -- which is EXACTLY the node the pre-split code called
+  `add_child()` on, so that path is unchanged too. (It fires only for a 4th+ tool outside the
+  built-in three; no test exercises it, but real gameplay parity is preserved.)
+
+This is the documented, justified exception CONVENTIONS.md Rule 1 allows: the anchor (empty
+diff) is the supreme constraint, and `extends Node` would have violated it.
+
+## Line counts (before -> after)
+
+- `player/player.gd`: **551 -> 399** (under the 500 cap; single responsibility restored).
+- `components/equipment.gd`: **new, 260** (under the 500 cap).
+
+## Files changed
+
+- NEW `components/equipment.gd` (+ its `.gd.uid` generated by import).
+- `player/player.gd` slimmed to the facade + controller.
+- `CONVENTIONS.md` "Current standing" -> player.gd marked RESOLVED/under-cap (rule unchanged).
+- This NOTES.md section.
+- NO edits to tests/, ui/hud.gd, player.tscn, main.tscn, or any entity script.
+
+## Verification (empty-diff anchor is the gate)
+
+Binary: `...\Godot_v4.7.1-stable_win64_console.exe`, all against
+`--path R:\Godot_Knowledge\projects\01-sword-slash`.
+
+1. Import -- exit 0, `Equipment` registers in `update_scripts_classes`.
+2. `--check-only --path` on player.gd + components/equipment.gd -- exit 0 each.
+3. `bash play.sh --test` -- exit 0, **142 [PASS] / 0 [FAIL]**.
+4. ANCHOR: `grep '[PASS]' | sed 's/^[PASS] //' | sort` vs `/tmp/pre_e1a_pass.txt` --
+   **diff EMPTY** (142 identical assertion messages).
+5. `wc -l`: player.gd 399 < 500, equipment.gd 260 < 500.
+6. Live boot BOTH scenes headless: default streaming_world `--quit-after 45` and
+   `res://main.tscn --quit-after 30` -- exit 0, **0 SCRIPT ERROR** each.
+
+Verified against: Godot 4.7.1 (2026-07-18)

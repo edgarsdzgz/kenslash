@@ -72,30 +72,12 @@ var respawn_point: Vector2 = Vector2.INF
 ## 2 -> lunge. Advances each swing and wraps 2 -> 0. Public so a test can read it.
 var _combo_index: int = 0
 var _attacking: bool = false
-## Latched true when the ACTIVE tool's durability hits 0. While broken, attack() is
-## a no-op (no swing, so no HP damage and no further wear) until repair -- later.
-## Re-derived from the active DurabilityComponent's is_broken() on every equip_tool()
-## call, so switching to a fresh (unbroken) tool un-gates attacks immediately.
-var _sword_broken: bool = false
-## The tool currently equipped (System 3, design-durability.md). Set by equip_tool();
-## defaulted to the sword at the end of _ready so existing combo/attack behavior is
-## unchanged out of the box.
-var _active_tool: ToolData = null
-## The active tool's RUNTIME wear component -- whichever DurabilityComponent is
-## currently wired into the Sword Hitbox's `durability`.
-var _active_durability: DurabilityComponent = null
-## Per-tool runtime DurabilityComponent, keyed by ToolData.resource_path. Seeded in
-## _ready with the three built-in tools' scene-authored nodes (durability is per-tool,
-## never shared -- the resource-sharing trap, patterns/resource-driven-design.md). A
-## ToolData equipped later with no entry here gets a fresh DurabilityComponent
-## instantiated on demand (see _durability_for) -- the chokepoint the next (inventory)
-## build calls into instead of reinventing tool-switching.
-var _durability_by_tool: Dictionary = {}
-## Inventory & hotbar (design-inventory.md). Pure logic object, standalone
-## testable (`Inventory.new()` with no player/scene needed). Public so a test can
-## drive equip-by-slot-index end-to-end, and so number keys / scroll / Q/E / G can
-## all funnel through it from a single chokepoint (_apply_equipped below).
-var inventory: Inventory = Inventory.new()
+## Equipment subsystem (E1a, components/equipment.gd): owns the inventory, the per-tool
+## durability map, the active-tool/broken-gate state, and the inventory input. Created
+## and wired in _ready. The forwarding facade below (inventory / _active_durability /
+## _sword_broken getters + equip_tool / _apply_equipped) keeps `player.X` reads working
+## for the tests and the HUD without them knowing the subsystem moved.
+var _equipment: Equipment = null
 ## Controlled movement velocity, kept separate from knockback so the two do not
 ## compound frame to frame.
 var _move_velocity: Vector2 = Vector2.ZERO
@@ -108,17 +90,10 @@ var _swing_tween: Tween = null
 
 @onready var _body: Polygon2D = $Body
 @onready var _sword_pivot: Node2D = $SwordPivot
+## The Sword Hitbox STAYS on the player (the Equipment holds a ref to this SAME node and
+## writes tool stats onto it) so tests read `player._sword.atk` etc. unchanged.
 @onready var _sword: Hitbox = $SwordPivot/Sword
 @onready var _sword_shape: CollisionShape2D = $SwordPivot/Sword/CollisionShape2D
-## The sword's runtime wear (System 2). equip_tool() wires whichever tool's
-## DurabilityComponent is active into the Sword Hitbox so the Hurtbox chokepoint can
-## wear it; when it breaks, the blade is gated.
-@onready var _sword_durability: DurabilityComponent = $SwordDurability
-## Same runtime wear for the axe and pickaxe -- current durability is per-tool,
-## never shared. equip_tool() swaps whichever of these (or an on-demand one) is
-## active into the Sword Hitbox's `durability`.
-@onready var _axe_durability: DurabilityComponent = $AxeDurability
-@onready var _pickaxe_durability: DurabilityComponent = $PickaxeDurability
 ## Solid silver blade. It IS the hitbox extent (visual == collision), shown only
 ## during a swing.
 @onready var _blade: Polygon2D = $SwordPivot/Sword/Blade
@@ -127,6 +102,28 @@ var _swing_tween: Tween = null
 ## One-shot grace timer: while it runs, the next attack continues the combo; on
 ## timeout the combo resets to hit 1.
 @onready var _combo_reset_timer: Timer = $ComboResetTimer
+
+
+# --- Equipment facade (E1a) -----------------------------------------------------------
+# Thin forwarders so the tests and the HUD keep reading `player.X` after the equipment
+# subsystem moved to components/equipment.gd. Behaviour is identical -- these just relay
+# to _equipment. The tool-data consts (SWORD_DATA/... , UNARMED_ATK) stay on Player above.
+
+## Inventory model, owned by the Equipment. Forwarded so `player.inventory` reads/methods
+## (tests + HUD) work unchanged.
+var inventory: Inventory:
+	get:
+		return _equipment.inventory
+## Active tool's runtime wear component, owned by the Equipment. Read by the HUD and a
+## test via `player._active_durability`.
+var _active_durability: DurabilityComponent:
+	get:
+		return _equipment._active_durability
+## Broken-gate, owned by the Equipment. Read here in attack() and by a test via
+## `player._sword_broken`.
+var _sword_broken: bool:
+	get:
+		return _equipment._sword_broken
 
 
 func _ready() -> void:
@@ -144,105 +141,26 @@ func _ready() -> void:
 	_hurtbox.invincibility_ended.connect(_on_invincibility_ended)
 	# Combo continue-window: on timeout the next swing restarts at hit 1.
 	_combo_reset_timer.timeout.connect(_on_combo_reset)
-	# System 3 -- tool categories (design-durability.md). Seed the per-tool durability
-	# map with the three built-in tools' scene-authored components, then equip the
-	# sword by default so existing combo/attack behavior is unchanged out of the box.
-	_durability_by_tool[SWORD_DATA.resource_path] = _sword_durability
-	_durability_by_tool[AXE_DATA.resource_path] = _axe_durability
-	_durability_by_tool[PICKAXE_DATA.resource_path] = _pickaxe_durability
-	# Inventory & hotbar (design-inventory.md). Auto-populate the starting loadout
-	# in TOOL-PRIORITY order -- add_tool() itself just fills first-empty, so the
-	# priority ordering comes from the order these three calls happen in.
-	inventory.add_tool(SWORD_DATA)
-	inventory.add_tool(AXE_DATA)
-	inventory.add_tool(PICKAXE_DATA)
-	# equipped_index defaults to 0 (the sword), so this reproduces the prior
-	# hardcoded equip_tool(SWORD_DATA) default via the SAME chokepoint the
-	# inventory-driven input (number keys / scroll / Q/E) also calls into.
-	_apply_equipped()
+	# Equipment subsystem (E1a). A RefCounted (NOT a child node -- see equipment.gd for
+	# why: a node would perturb the streaming node-count anchor). "Call down" the host
+	# (self, for on-demand durability parenting) + the shared Sword Hitbox / Blade + the
+	# three scene-authored DurabilityComponents. setup() seeds the durability map,
+	# auto-populates the inventory, and equips the sword by default -- reproducing the
+	# prior in-line _ready seeding exactly.
+	_equipment = Equipment.new()
+	_equipment.setup(self, _sword, _blade, $SwordDurability, $AxeDurability, $PickaxeDurability)
 
 
-## Equip a tool: swap its stats onto the Sword Hitbox (atk/power/break_threshold/
-## wear_max/harvest_type -- Systems 1/2/3), swap its OWN runtime DurabilityComponent
-## into hitbox.durability (each tool's wear is independent, never shared), retint the
-## blade, and re-latch the broken-gate to whichever tool is now active. Directly
-## callable -- this is the ONE chokepoint the next build (inventory/hotbar) calls into
-## instead of reinventing tool-switching. Not gated behind real input this build; a
-## headless test calls it directly to switch tools mid-run.
+## Equip a tool (facade -> Equipment.equip_tool). Directly callable -- a headless test
+## calls player.equip_tool(...) to switch tools mid-run.
 func equip_tool(tool: ToolData) -> void:
-	if tool == null:
-		return
-	var dura: DurabilityComponent = _durability_for(tool)
-	# Stop listening for the PREVIOUS tool's break before wiring the new one, so a
-	# broken axe re-latching does not also fire off the sword's stale connection.
-	if _active_durability != null and _active_durability.broke.is_connected(_on_tool_broke):
-		_active_durability.broke.disconnect(_on_tool_broke)
-	_active_tool = tool
-	_active_durability = dura
-	if not _active_durability.broke.is_connected(_on_tool_broke):
-		_active_durability.broke.connect(_on_tool_broke)
-	# A previously-broken tool re-equipped must re-latch the gate immediately -- its
-	# `broke` signal already fired in the past and will not fire again.
-	_sword_broken = _active_durability.is_broken()
-	_sword.durability = _active_durability
-	_sword.atk = tool.atk
-	_sword.power = tool.power
-	_sword.break_threshold = tool.break_threshold
-	_sword.wear_max = tool.wear_max
-	_sword.harvest_type = tool.harvest_type
-	_blade.color = tool.blade_color
+	_equipment.equip_tool(tool)
 
 
-## Inventory & hotbar chokepoint (design-inventory.md): reads whatever the
-## inventory currently has equipped and applies it to the Sword Hitbox -- a real
-## ToolData via the EXISTING equip_tool(), or the unarmed fallback via
-## _apply_unarmed() when the equipped slot is empty. Number keys, scroll, and Q/E
-## all funnel through this ONE method so equip behaves identically no matter which
-## input triggered it. Directly callable by a test with no real input needed.
+## Apply whatever the inventory has equipped (facade -> Equipment.apply_equipped).
+## Directly callable by a test after driving inventory.equip_index(...).
 func _apply_equipped() -> void:
-	var tool: ToolData = inventory.equipped_tool()
-	if tool != null:
-		equip_tool(tool)
-	else:
-		_apply_unarmed()
-
-
-## Unarmed fallback (design-inventory.md): the equipped slot is empty. Sets the
-## Sword Hitbox to a low flat ATK with NO durability/harvest interaction -- power/
-## break_threshold/wear_max all 0, harvest_type NONE, and `durability` left null so
-## the Hurtbox chokepoint's `if hitbox.durability != null` skip means no wear is
-## ever attempted (nothing to wear -- there is no weapon). Converges on the same
-## Sword Hitbox fields equip_tool() sets, just with the constant fallback block
-## instead of a ToolData's.
-func _apply_unarmed() -> void:
-	if _active_durability != null and _active_durability.broke.is_connected(_on_tool_broke):
-		_active_durability.broke.disconnect(_on_tool_broke)
-	_active_tool = null
-	_active_durability = null
-	_sword_broken = false
-	_sword.durability = null
-	_sword.atk = UNARMED_ATK
-	_sword.power = 0
-	_sword.break_threshold = 0
-	_sword.wear_max = 0
-	_sword.harvest_type = Harvest.Type.NONE
-	_blade.color = UNARMED_COLOR
-
-
-## Look up (or lazily create) the RUNTIME DurabilityComponent for `tool`, keyed by its
-## resource path so a future ToolData outside the three built-in nodes (a new
-## inventory item) still gets its own independent wear counter instead of reusing
-## someone else's -- current durability is never stored on the shared ToolData
-## resource itself (the sharing trap, patterns/resource-driven-design.md).
-func _durability_for(tool: ToolData) -> DurabilityComponent:
-	var key: String = tool.resource_path
-	if _durability_by_tool.has(key):
-		return _durability_by_tool[key]
-	var dura: DurabilityComponent = DurabilityComponent.new()
-	dura.max_durability = tool.max_durability
-	add_child(dura)
-	_durability_by_tool[key] = dura
-	return dura
+	_equipment.apply_equipped()
 
 
 func _physics_process(delta: float) -> void:
@@ -252,9 +170,17 @@ func _physics_process(delta: float) -> void:
 	_simulate(delta, _gather_input())
 	# Inventory hotkeys are their own concern (not part of the networked FrameInput
 	# contract -- equip selection is a local UI action, not gameplay-simulation
-	# state a peer/AI would drive), so they are read directly from the InputMap
-	# here rather than routed through FrameInput.
-	_process_inventory_input()
+	# state a peer/AI would drive), so they are read directly from the InputMap by the
+	# Equipment here rather than routed through FrameInput. Same physics-frame cadence as
+	# before the split.
+	_equipment.process_inventory_input()
+
+
+## Mouse-wheel hotbar selection is an equipment concern; forward the event verbatim to
+## the Equipment (a RefCounted, which cannot receive engine input callbacks itself).
+## Same one-shot InputEventMouseButton handling as before the split.
+func _unhandled_input(event: InputEvent) -> void:
+	_equipment.handle_wheel_input(event)
 
 
 ## Produce this tick's intent. Local source reads the InputMap; if input_override is
@@ -269,77 +195,6 @@ func _gather_input() -> FrameInput:
 	fi.move = Input.get_vector("move_left", "move_right", "move_up", "move_down")
 	fi.attack = Input.is_action_just_pressed("attack")
 	return fi
-
-
-## Inventory & hotbar keys (design-inventory.md): number keys 1-9,0 jump directly
-## to their mapped slot (key '1' -> index 0, ... '9' -> index 8, '0' -> index 9,
-## the fixed 10-position ring), ALWAYS, regardless of lock state. Q/E cycle the
-## current ring by -1/+1 -- same convention as the scroll wheel (Q mirrors scroll
-## up = previous, E mirrors scroll down = next). G toggles the hotbar lock. Every
-## branch re-applies via the SAME _apply_equipped() chokepoint the scroll-wheel
-## handler and _ready() also use, so equip behaves identically no matter which
-## input triggered it.
-func _process_inventory_input() -> void:
-	if Input.is_action_just_pressed("tool_1"):
-		inventory.equip_index(0)
-		_apply_equipped()
-	elif Input.is_action_just_pressed("tool_2"):
-		inventory.equip_index(1)
-		_apply_equipped()
-	elif Input.is_action_just_pressed("tool_3"):
-		inventory.equip_index(2)
-		_apply_equipped()
-	elif Input.is_action_just_pressed("tool_4"):
-		inventory.equip_index(3)
-		_apply_equipped()
-	elif Input.is_action_just_pressed("tool_5"):
-		inventory.equip_index(4)
-		_apply_equipped()
-	elif Input.is_action_just_pressed("tool_6"):
-		inventory.equip_index(5)
-		_apply_equipped()
-	elif Input.is_action_just_pressed("tool_7"):
-		inventory.equip_index(6)
-		_apply_equipped()
-	elif Input.is_action_just_pressed("tool_8"):
-		inventory.equip_index(7)
-		_apply_equipped()
-	elif Input.is_action_just_pressed("tool_9"):
-		inventory.equip_index(8)
-		_apply_equipped()
-	elif Input.is_action_just_pressed("tool_0"):
-		inventory.equip_index(9)
-		_apply_equipped()
-
-	if Input.is_action_just_pressed("inventory_prev"):
-		inventory.cycle(-1)
-		_apply_equipped()
-	elif Input.is_action_just_pressed("inventory_next"):
-		inventory.cycle(1)
-		_apply_equipped()
-
-	if Input.is_action_just_pressed("toggle_hotbar_unlock"):
-		inventory.hotbar_unlocked = not inventory.hotbar_unlocked
-		print("[player] hotbar unlock: ", inventory.hotbar_unlocked)
-
-
-## Mouse wheel selection (design-inventory.md): scroll up = previous, scroll down
-## = next (same ring/lock rules as Q/E). The wheel has no clean "just pressed" via
-## the Input singleton -- it arrives here as a one-shot InputEventMouseButton with
-## pressed=true, followed by a synthetic released on the same input flush. Acting
-## only on the pressed=true edge means one notch triggers exactly one cycle, never
-## two.
-func _unhandled_input(event: InputEvent) -> void:
-	if event is InputEventMouseButton:
-		var mb: InputEventMouseButton = event as InputEventMouseButton
-		if not mb.pressed:
-			return
-		if mb.button_index == MOUSE_BUTTON_WHEEL_UP:
-			inventory.cycle(-1)
-			_apply_equipped()
-		elif mb.button_index == MOUSE_BUTTON_WHEEL_DOWN:
-			inventory.cycle(1)
-			_apply_equipped()
 
 
 ## Advance the controller one physics tick from an input struct. Reads NO input
@@ -444,13 +299,6 @@ func _sweep_to(target: float) -> void:
 ## Combo grace window expired: the next attack restarts at hit 1.
 func _on_combo_reset() -> void:
 	_combo_index = 0
-
-
-## Active tool's durability hit 0: gate the blade. attack() no-ops until repair
-## (later), so a broken tool deals no HP damage and takes no further wear.
-func _on_tool_broke() -> void:
-	_sword_broken = true
-	print("[player] ", _active_tool.display_name, " broke -- attacks disabled until repaired")
 
 
 ## Flash white on a hit, then tween back -- same overbright trick the enemy uses.

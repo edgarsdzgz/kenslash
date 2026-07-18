@@ -45,11 +45,15 @@ find . -name "*.gd" -not -path "./.godot/*" | xargs wc -l | sort -rn | head
 ```
 Any production `.gd` over 500 (or a test over ~600) is a refactor flag.
 
-**Current standing (audited 2026-07-17):**
-- `player/player.gd` -- **514, OVER the hard cap.** Flagged: it now carries movement +
-  the 3-hit combo/attack + inventory input + death/effects. Refactor candidate -- extract
-  the combat/combo (or the inventory-input handling) into its own component. Not urgent,
-  but the next time it is touched substantially, split it.
+**Current standing (audited 2026-07-18):**
+- `player/player.gd` -- **RESOLVED (E1a, 2026-07-18): 399, UNDER the cap.** The equipment
+  subsystem (equip_tool/_apply_equipped/_apply_unarmed, the per-tool durability map, the
+  active-tool/broken-gate state, the inventory selection + mouse-wheel input) was extracted
+  into `components/equipment.gd` (260 lines, also under cap). player.gd keeps a thin
+  forwarding facade (equip_tool/_apply_equipped + inventory/_active_durability/_sword_broken
+  getters) so the tests and HUD read `player.X` unchanged. PURE refactor: the same 142
+  [PASS] assertions passed byte-for-byte (empty pre/post diff). player.gd now carries only
+  movement + the 3-hit combo/attack + hit-feedback + death/respawn.
 - `tests/smoke_slash.gd` -- **RESOLVED (split 2026-07-17).** No longer the 1350-line
   monolith: it is now a ~100-line thin orchestrator + entry point that drives per-system
   modules (`tests/test_units.gd`, `tests/test_combat.gd`, `tests/test_durability_tools.gd`,
@@ -58,4 +62,4 @@ Any production `.gd` over 500 (or a test over ~600) is a refactor flag.
 - Every other production `.gd` is comfortably under 400 (the composition architecture
   keeping files small, as intended).
 
-*Last updated: 2026-07-17*
+*Last updated: 2026-07-18*
