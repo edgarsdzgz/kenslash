@@ -80,6 +80,15 @@ even to 0); hardness's "too hard" (Band C) gates only mineable MATERIALS (rock).
 0-HP vs heavy armor, but grind armor durability -> it breaks -> DEF drops -> HP gets through.
 Split rule: HealthComponent = combat HP; DurabilityComponent = wear. Building the slice now.
 
+## Milestone E -- items, harvesting & pickup -- STARTED (2026-07-18), spec in design-items.md
+
+Harvest by attacking (existing); magnetic-pull auto-pickup; drops persist as chunk data,
+age while loaded, despawn at 5 real-min (the anti-sprawl cull). Sub-sequence: E1a extract
+an Equipment component out of player.gd (551, over cap -- pure refactor, pays the debt) ->
+E1b ItemData/ItemStack + generalized stacking inventory (Wood/Stone) -> E2 harvest yield
+(tree-on-fell, mineral-per-hit spawning drops) -> E3 Drop entity + magnetic pickup +
+lifetime cull + chunk-persist. E4 (later) 'f' interaction framework once doors/chests exist.
+
 ## Milestone D -- the playable loop -- COMPLETE (2026-07-18), spec in design-playable-loop.md
 
 DONE, 141/141 headless. D1: boots into streaming_world.tscn; world-preserving respawn
