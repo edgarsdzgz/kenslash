@@ -1,0 +1,45 @@
+[gd_scene load_steps=7 format=4]
+
+[ext_resource type="Script" path="res://main.gd" id="1_main"]
+[ext_resource type="PackedScene" path="res://player/player.tscn" id="2_player"]
+[ext_resource type="PackedScene" path="res://enemy/enemy.tscn" id="3_enemy"]
+[ext_resource type="PackedScene" path="res://enemy/dummy.tscn" id="4_dummy"]
+[ext_resource type="PackedScene" path="res://world/rock.tscn" id="5_rock"]
+[ext_resource type="PackedScene" path="res://world/tree.tscn" id="6_tree"]
+
+[node name="Main" type="Node2D"]
+y_sort_enabled = true
+script = ExtResource("1_main")
+
+[node name="Background" type="ColorRect" parent="."]
+z_index = -10
+offset_left = -320.0
+offset_top = -180.0
+offset_right = 320.0
+offset_bottom = 180.0
+color = Color(0.12, 0.13, 0.18, 1)
+
+[node name="Camera2D" type="Camera2D" parent="."]
+
+[node name="Player" parent="." instance=ExtResource("2_player")]
+position = Vector2(-80, 0)
+
+[node name="Enemy" parent="." instance=ExtResource("3_enemy")]
+position = Vector2(80, 0)
+
+[node name="Dummy" parent="." instance=ExtResource("4_dummy")]
+position = Vector2(40, -110)
+
+[node name="SoftRock" parent="." instance=ExtResource("5_rock")]
+position = Vector2(-60, 100)
+hardness = 6
+integrity = 4
+
+[node name="ObsidianRock" parent="." instance=ExtResource("5_rock")]
+position = Vector2(60, 100)
+hardness = 12
+integrity = 4
+color = Color(0.16, 0.11, 0.22, 1)
+
+[node name="Tree" parent="." instance=ExtResource("6_tree")]
+position = Vector2(-140, -40)

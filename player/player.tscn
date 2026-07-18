@@ -1,0 +1,90 @@
+[gd_scene load_steps=8 format=4]
+
+[ext_resource type="Script" path="res://player/player.gd" id="1_player"]
+[ext_resource type="Script" path="res://components/hitbox.gd" id="2_hitbox"]
+[ext_resource type="PackedScene" path="res://components/health_component.tscn" id="3_health"]
+[ext_resource type="Script" path="res://components/hurtbox.gd" id="4_hurtbox"]
+[ext_resource type="Script" path="res://components/durability_component.gd" id="5_dura"]
+
+[sub_resource type="RectangleShape2D" id="RectangleShape2D_body"]
+size = Vector2(20, 20)
+
+[sub_resource type="RectangleShape2D" id="RectangleShape2D_blade"]
+size = Vector2(30, 6)
+
+[sub_resource type="RectangleShape2D" id="RectangleShape2D_hurt"]
+size = Vector2(20, 40)
+
+[node name="Player" type="CharacterBody2D"]
+collision_layer = 2
+collision_mask = 5
+script = ExtResource("1_player")
+
+[node name="Body" type="Polygon2D" parent="."]
+color = Color(0.35, 0.7, 1, 1)
+polygon = PackedVector2Array(-10, -36, 0, -36, 3.83, -34.48, 7.07, -30.14, 9.24, -23.65, 10, -16, 9.24, -8.35, 7.07, -1.86, 3.83, 2.48, 0, 4, -10, 4)
+
+[node name="CollisionShape2D" type="CollisionShape2D" parent="."]
+position = Vector2(0, -6)
+shape = SubResource("RectangleShape2D_body")
+
+[node name="SwordPivot" type="Node2D" parent="."]
+
+[node name="Sword" type="Area2D" parent="SwordPivot"]
+collision_layer = 8
+collision_mask = 0
+monitoring = false
+monitorable = true
+script = ExtResource("2_hitbox")
+atk = 6
+power = 5
+break_threshold = 3
+wear_max = 4
+harvest_type = 0
+knockback = 180.0
+
+[node name="CollisionShape2D" type="CollisionShape2D" parent="SwordPivot/Sword"]
+position = Vector2(24, 0)
+shape = SubResource("RectangleShape2D_blade")
+disabled = true
+
+[node name="Blade" type="Polygon2D" parent="SwordPivot/Sword"]
+z_index = 10
+position = Vector2(24, 0)
+color = Color(0.85, 0.9, 1, 1)
+polygon = PackedVector2Array(-15, -3, 15, -3, 15, 3, -15, 3)
+visible = false
+
+[node name="HealthComponent" parent="." instance=ExtResource("3_health")]
+max_health = 5
+
+[node name="Hurtbox" type="Area2D" parent="."]
+collision_layer = 64
+collision_mask = 32
+monitoring = true
+monitorable = false
+script = ExtResource("4_hurtbox")
+invincibility_time = 0.5
+
+[node name="CollisionShape2D" type="CollisionShape2D" parent="Hurtbox"]
+position = Vector2(0, -16)
+shape = SubResource("RectangleShape2D_hurt")
+
+[node name="InvincibilityTimer" type="Timer" parent="Hurtbox"]
+one_shot = true
+
+[node name="SwordDurability" type="Node" parent="."]
+script = ExtResource("5_dura")
+max_durability = 40
+
+[node name="AxeDurability" type="Node" parent="."]
+script = ExtResource("5_dura")
+max_durability = 40
+
+[node name="PickaxeDurability" type="Node" parent="."]
+script = ExtResource("5_dura")
+max_durability = 40
+
+[node name="ComboResetTimer" type="Timer" parent="."]
+one_shot = true
+wait_time = 0.5

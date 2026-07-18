@@ -1,0 +1,68 @@
+[gd_scene load_steps=7 format=4]
+
+[ext_resource type="Script" path="res://enemy/enemy.gd" id="1_enemy"]
+[ext_resource type="PackedScene" path="res://components/health_component.tscn" id="2_health"]
+[ext_resource type="Script" path="res://components/hurtbox.gd" id="3_hurtbox"]
+[ext_resource type="Script" path="res://components/hitbox.gd" id="4_hitbox"]
+
+[sub_resource type="RectangleShape2D" id="RectangleShape2D_body"]
+size = Vector2(20, 20)
+
+[sub_resource type="RectangleShape2D" id="RectangleShape2D_hurt"]
+size = Vector2(20, 40)
+
+[sub_resource type="RectangleShape2D" id="RectangleShape2D_atk"]
+size = Vector2(28, 22)
+
+[node name="Enemy" type="CharacterBody2D"]
+collision_layer = 4
+collision_mask = 3
+script = ExtResource("1_enemy")
+
+[node name="Body" type="Polygon2D" parent="."]
+color = Color(1, 0.4, 0.35, 1)
+polygon = PackedVector2Array(-10, -36, 0, -36, 3.83, -34.48, 7.07, -30.14, 9.24, -23.65, 10, -16, 9.24, -8.35, 7.07, -1.86, 3.83, 2.48, 0, 4, -10, 4)
+
+[node name="CollisionShape2D" type="CollisionShape2D" parent="."]
+position = Vector2(0, -6)
+shape = SubResource("RectangleShape2D_body")
+
+[node name="HealthComponent" parent="." instance=ExtResource("2_health")]
+max_health = 6
+
+[node name="Hurtbox" type="Area2D" parent="."]
+collision_layer = 16
+collision_mask = 8
+monitoring = true
+monitorable = false
+script = ExtResource("3_hurtbox")
+def = 1
+hardness = 2
+
+[node name="CollisionShape2D" type="CollisionShape2D" parent="Hurtbox"]
+position = Vector2(0, -16)
+shape = SubResource("RectangleShape2D_hurt")
+
+[node name="InvincibilityTimer" type="Timer" parent="Hurtbox"]
+one_shot = true
+
+[node name="AttackHitbox" type="Area2D" parent="."]
+collision_layer = 32
+collision_mask = 0
+monitoring = false
+monitorable = true
+script = ExtResource("4_hitbox")
+atk = 1
+knockback = 150.0
+
+[node name="CollisionShape2D" type="CollisionShape2D" parent="AttackHitbox"]
+position = Vector2(18, 0)
+shape = SubResource("RectangleShape2D_atk")
+disabled = true
+
+[node name="AttackVisual" type="Polygon2D" parent="AttackHitbox"]
+z_index = 11
+position = Vector2(18, 0)
+color = Color(1, 0.25, 0.2, 0.45)
+polygon = PackedVector2Array(-14, -11, 14, -11, 14, 11, -14, 11)
+visible = false

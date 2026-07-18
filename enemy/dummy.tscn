@@ -1,0 +1,74 @@
+[gd_scene load_steps=8 format=4]
+
+[ext_resource type="Script" path="res://enemy/enemy.gd" id="1_enemy"]
+[ext_resource type="PackedScene" path="res://components/health_component.tscn" id="2_health"]
+[ext_resource type="Script" path="res://components/hurtbox.gd" id="3_hurtbox"]
+[ext_resource type="Script" path="res://components/hitbox.gd" id="4_hitbox"]
+[ext_resource type="Script" path="res://components/durability_component.gd" id="5_dura"]
+
+[sub_resource type="CircleShape2D" id="CircleShape2D_body"]
+radius = 20.0
+
+[sub_resource type="RectangleShape2D" id="RectangleShape2D_hurt"]
+size = Vector2(80, 80)
+
+[sub_resource type="RectangleShape2D" id="RectangleShape2D_atk"]
+size = Vector2(28, 22)
+
+[node name="Dummy" type="CharacterBody2D"]
+collision_layer = 4
+collision_mask = 3
+script = ExtResource("1_enemy")
+stationary = true
+
+[node name="Body" type="Polygon2D" parent="."]
+color = Color(0.9, 0.55, 0.2, 1)
+polygon = PackedVector2Array(-40, -76, 0, -76, 15.3, -72.96, 28.28, -64.28, 36.96, -51.3, 40, -36, 36.96, -20.7, 28.28, -7.72, 15.3, 0.96, 0, 4, -40, 4)
+
+[node name="CollisionShape2D" type="CollisionShape2D" parent="."]
+shape = SubResource("CircleShape2D_body")
+
+[node name="HealthComponent" parent="." instance=ExtResource("2_health")]
+max_health = 12
+
+[node name="Hurtbox" type="Area2D" parent="."]
+collision_layer = 16
+collision_mask = 8
+monitoring = true
+monitorable = false
+script = ExtResource("3_hurtbox")
+def = 4
+hardness = 7
+wear_taken = 1
+
+[node name="CollisionShape2D" type="CollisionShape2D" parent="Hurtbox"]
+position = Vector2(0, -36)
+shape = SubResource("RectangleShape2D_hurt")
+
+[node name="InvincibilityTimer" type="Timer" parent="Hurtbox"]
+one_shot = true
+
+[node name="AttackHitbox" type="Area2D" parent="."]
+collision_layer = 32
+collision_mask = 0
+monitoring = false
+monitorable = true
+script = ExtResource("4_hitbox")
+atk = 1
+knockback = 150.0
+
+[node name="CollisionShape2D" type="CollisionShape2D" parent="AttackHitbox"]
+position = Vector2(24, 0)
+shape = SubResource("RectangleShape2D_atk")
+disabled = true
+
+[node name="AttackVisual" type="Polygon2D" parent="AttackHitbox"]
+z_index = 11
+position = Vector2(24, 0)
+color = Color(1, 0.25, 0.2, 0.45)
+polygon = PackedVector2Array(-14, -11, 14, -11, 14, 11, -14, 11)
+visible = false
+
+[node name="Armor" type="Node" parent="."]
+script = ExtResource("5_dura")
+max_durability = 3

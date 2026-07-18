@@ -1,0 +1,43 @@
+[gd_scene load_steps=6 format=4]
+
+[ext_resource type="Script" path="res://world/tree.gd" id="1_tree"]
+[ext_resource type="Script" path="res://components/hurtbox.gd" id="2_hurtbox"]
+[ext_resource type="Script" path="res://components/durability_component.gd" id="3_dura"]
+
+[sub_resource type="RectangleShape2D" id="RectangleShape2D_body"]
+size = Vector2(14, 14)
+
+[sub_resource type="RectangleShape2D" id="RectangleShape2D_hurt"]
+size = Vector2(40, 40)
+
+[node name="Tree" type="StaticBody2D"]
+collision_layer = 1
+collision_mask = 0
+script = ExtResource("1_tree")
+
+[node name="Body" type="Polygon2D" parent="."]
+color = Color(0.45, 0.3, 0.15, 1)
+polygon = PackedVector2Array(-8, -156, 8, -156, 8, 4, -8, 4)
+
+[node name="CollisionShape2D" type="CollisionShape2D" parent="."]
+shape = SubResource("RectangleShape2D_body")
+
+[node name="Hurtbox" type="Area2D" parent="."]
+collision_layer = 128
+collision_mask = 8
+monitoring = true
+monitorable = false
+script = ExtResource("2_hurtbox")
+hardness = 3
+wear_taken = 2
+required_harvest = 1
+
+[node name="CollisionShape2D" type="CollisionShape2D" parent="Hurtbox"]
+shape = SubResource("RectangleShape2D_hurt")
+
+[node name="InvincibilityTimer" type="Timer" parent="Hurtbox"]
+one_shot = true
+
+[node name="Material" type="Node" parent="."]
+script = ExtResource("3_dura")
+max_durability = 6

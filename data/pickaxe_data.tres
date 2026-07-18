@@ -1,0 +1,14 @@
+[gd_resource type="Resource" script_class="ToolData" load_steps=2 format=3]
+
+[ext_resource type="Script" path="res://components/tool_data.gd" id="1_tool"]
+
+[resource]
+script = ExtResource("1_tool")
+display_name = "Pickaxe"
+atk = 2
+power = 7
+break_threshold = 3
+wear_max = 4
+max_durability = 40
+harvest_type = 2
+blade_color = Color(0.55, 0.55, 0.6, 1)
