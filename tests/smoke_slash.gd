@@ -19,6 +19,8 @@ extends SceneTree
 ##                                     shipped streaming_world.tscn, self-contained.
 ##   * tests/test_hud.gd            -- playable-loop D2: the minimal HUD reflects health/tool/
 ##                                     durability/hotbar on streaming_world.tscn, self-contained.
+##   * tests/test_lifetime.gd       -- E3b lifetime cull: short-lived drops despawn, default-
+##                                     lifetime drops survive, order is tunable; self-contained.
 ##
 ## ORDERED SHARED-SCENE CONTRACT: the combat and durability legs share ONE main.tscn instance
 ## with cross-leg state (resets, tool equips, positions). The orchestrator instantiates that
@@ -104,8 +106,11 @@ func _run() -> void:
 	# --- Magnetic auto-pickup E3a (self-contained: own player + drops far from origin) ----
 	await TestPickup.new().run(ctx)
 
+	# --- Lifetime cull E3b (self-contained: own short-lived drops far from origin) --------
+	await TestLifetime.new().run(ctx)
+
 	if ctx.all_pass:
-		print("[PASS] smoke_slash: combat + combo + death + bodies + input seam + durability + streaming + playable + hud + harvest + pickup -- all passed")
+		print("[PASS] smoke_slash: combat + combo + death + bodies + input seam + durability + streaming + playable + hud + harvest + pickup + lifetime -- all passed")
 		quit(0)
 	else:
 		_fail("one or more assertions failed")
