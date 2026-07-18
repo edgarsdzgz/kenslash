@@ -228,10 +228,20 @@ from the prior correction -- UNCHANGED in principle) covers the FULL 40px height
 **FacingMarker REMOVED entirely** (the rotating-wedge component from two
 corrections ago). Replaced with a simpler, more classic technique: the Body's
 D-shape (rounded front / flat back, same construction as always) is built once at
-its default "facing right" orientation, and `_body.rotation` is set to either `0`
-(right) or `PI` (left) -- a plain left/right FLIP, not a continuous rotation. This
-works because the shape is vertically symmetric about its own midline, so a 180
-degree rotation looks identical to a horizontal mirror.
+its default "facing right" orientation, and flipped left/right by setting
+`_body.scale.x` to `+1` (right) or `-1` (left) -- a true HORIZONTAL MIRROR around
+the vertical axis, leaving y untouched.
+
+CORRECTION (2026-07-18 -- bug fix): an earlier version of this note used
+`_body.rotation = 0/PI` and wrongly claimed the shape is "vertically symmetric about
+its origin, so 180deg == a horizontal mirror." It is NOT: the polygon is
+BASE-ANCHORED (spans roughly y -36..+4, centroid well above the origin), so a 180deg
+rotation about the origin flips it vertically too and drops the shape ~one body-height
+down-screen on every left turn. The fix is `scale.x = +/-1` (mirror only), which is
+also the standard sprite-flip idiom. Applies to Player (`_body.scale.x = side_facing`)
+and the chasing Enemy (`_body.scale.x = _side_facing`); collision (a separate
+CollisionShape2D) is unaffected. Lesson: flip a non-origin-symmetric shape with
+`scale.x`, never `rotation`.
 
 **Facing is now TWO separate concepts, decoupled on purpose**:
 - `facing` (Player, public) / `_facing` (Enemy, private): the FULL direction,

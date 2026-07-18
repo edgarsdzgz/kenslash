@@ -204,15 +204,15 @@ func run(ctx: TestContext) -> void:
 	drive.move = Vector2.RIGHT
 	player.input_override = drive
 	await ctx.tree.physics_frame
-	ctx.check(player.side_facing == 1 and is_equal_approx(player._body.rotation, 0.0),
-		"facing right sets side_facing=1, Body unrotated",
-		"facing right did not set side_facing/rotation correctly (side_facing=" + str(player.side_facing) + " rot=" + str(player._body.rotation) + ")")
+	ctx.check(player.side_facing == 1 and is_equal_approx(player._body.scale.x, 1.0),
+		"facing right sets side_facing=1, Body scale.x=+1 (unflipped)",
+		"facing right did not set side_facing/scale correctly (side_facing=" + str(player.side_facing) + " scale.x=" + str(player._body.scale.x) + ")")
 
 	drive.move = Vector2.LEFT
 	await ctx.tree.physics_frame
-	ctx.check(player.side_facing == -1 and is_equal_approx(player._body.rotation, PI),
-		"facing left sets side_facing=-1, Body rotated PI (flipped)",
-		"facing left did not set side_facing/rotation correctly (side_facing=" + str(player.side_facing) + " rot=" + str(player._body.rotation) + ")")
+	ctx.check(player.side_facing == -1 and is_equal_approx(player._body.scale.x, -1.0),
+		"facing left sets side_facing=-1, Body scale.x=-1 (horizontally mirrored, no y shift)",
+		"facing left did not set side_facing/scale correctly (side_facing=" + str(player.side_facing) + " scale.x=" + str(player._body.scale.x) + ")")
 
 	# Pure UP: aim (`facing`) must track it, but side_facing/Body must NOT change.
 	drive.move = Vector2.UP
@@ -220,9 +220,9 @@ func run(ctx: TestContext) -> void:
 	ctx.check(player.facing == Vector2.UP,
 		"pure UP still updates sword aim (facing == UP)",
 		"pure UP did not update aim (facing=" + str(player.facing) + ")")
-	ctx.check(player.side_facing == -1 and is_equal_approx(player._body.rotation, PI),
-		"pure UP left side_facing/Body unchanged (still left)",
-		"pure UP wrongly changed side_facing/rotation (side_facing=" + str(player.side_facing) + " rot=" + str(player._body.rotation) + ")")
+	ctx.check(player.side_facing == -1 and is_equal_approx(player._body.scale.x, -1.0),
+		"pure UP left side_facing/Body unchanged (still mirrored left)",
+		"pure UP wrongly changed side_facing/scale (side_facing=" + str(player.side_facing) + " scale.x=" + str(player._body.scale.x) + ")")
 
 	# Pure DOWN: same guarantee, still holding "left" from before.
 	drive.move = Vector2.DOWN
@@ -230,16 +230,16 @@ func run(ctx: TestContext) -> void:
 	ctx.check(player.facing == Vector2.DOWN,
 		"pure DOWN still updates sword aim (facing == DOWN)",
 		"pure DOWN did not update aim (facing=" + str(player.facing) + ")")
-	ctx.check(player.side_facing == -1 and is_equal_approx(player._body.rotation, PI),
-		"pure DOWN left side_facing/Body unchanged (still left)",
-		"pure DOWN wrongly changed side_facing/rotation (side_facing=" + str(player.side_facing) + " rot=" + str(player._body.rotation) + ")")
+	ctx.check(player.side_facing == -1 and is_equal_approx(player._body.scale.x, -1.0),
+		"pure DOWN left side_facing/Body unchanged (still mirrored left)",
+		"pure DOWN wrongly changed side_facing/scale (side_facing=" + str(player.side_facing) + " scale.x=" + str(player._body.scale.x) + ")")
 
 	# Diagonal (up-right): has an x component, so it DOES flip side_facing to right.
 	drive.move = Vector2(1, -1).normalized()
 	await ctx.tree.physics_frame
-	ctx.check(player.side_facing == 1 and is_equal_approx(player._body.rotation, 0.0),
+	ctx.check(player.side_facing == 1 and is_equal_approx(player._body.scale.x, 1.0),
 		"diagonal up-right flips side_facing to 1 (has an x component)",
-		"diagonal up-right did not flip side_facing (side_facing=" + str(player.side_facing) + " rot=" + str(player._body.rotation) + ")")
+		"diagonal up-right did not flip side_facing (side_facing=" + str(player.side_facing) + " scale.x=" + str(player._body.scale.x) + ")")
 
 	player.input_override = null  # release the seam back to real input
 

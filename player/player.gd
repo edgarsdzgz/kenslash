@@ -351,16 +351,18 @@ func _simulate(delta: float, input: FrameInput) -> void:
 	else:
 		_move_velocity = _move_velocity.move_toward(Vector2.ZERO, friction * delta)
 
-	# The Body's D-shape is a LEFT/RIGHT FLIP, not a continuous rotation (a thin 0.5x1
-	# body spinning through 8 directions would visually lay sideways). side_facing only
-	# updates when there is an x component -- a pure up/down press leaves it untouched,
-	# so the body never flips on vertical-only movement. `facing` (full direction, used
-	# for sword aim) still updates from every non-zero input above, unchanged.
+	# The Body's D-shape is a LEFT/RIGHT FLIP via scale.x = +/-1 (a true horizontal
+	# mirror around the vertical axis). NOT rotation: a 180deg rotation flips the
+	# base-anchored polygon vertically too, dropping the shape down the screen.
+	# side_facing only updates when there is an x component -- a pure up/down press
+	# leaves it untouched, so the body never flips on vertical-only movement.
+	# `facing` (full direction, used for sword aim) still updates from every non-zero
+	# input above, unchanged.
 	if input.move.x > 0.0:
 		side_facing = 1
 	elif input.move.x < 0.0:
 		side_facing = -1
-	_body.rotation = 0.0 if side_facing >= 0 else PI
+	_body.scale.x = float(side_facing)
 
 	# Controlled movement plus a decaying knockback impulse (also the lunge slide).
 	velocity = _move_velocity + _knockback

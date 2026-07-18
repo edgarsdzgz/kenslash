@@ -116,15 +116,17 @@ func _physics_process(delta: float) -> void:
 	var dist: float = to_target.length()
 	if dist > 0.001:
 		_facing = to_target / dist
-	# The Body's D-shape is a LEFT/RIGHT FLIP, not a continuous rotation. _side_facing
-	# only updates when the target has an x offset -- directly-above/below alignment
-	# leaves it untouched, so the body never flips on vertical-only alignment. _facing
-	# (full direction, used to aim the attack hitbox) still updates above, unchanged.
+	# The Body's D-shape is a LEFT/RIGHT FLIP via scale.x = +/-1 (a true horizontal
+	# mirror). NOT rotation: a 180deg rotation flips the base-anchored polygon
+	# vertically too, shifting it down-screen. _side_facing only updates when the
+	# target has an x offset -- directly-above/below alignment leaves it untouched, so
+	# the body never flips on vertical-only alignment. _facing (full direction, used to
+	# aim the attack hitbox) still updates above, unchanged.
 	if _facing.x > 0.0:
 		_side_facing = 1
 	elif _facing.x < 0.0:
 		_side_facing = -1
-	_body.rotation = 0.0 if _side_facing >= 0 else PI
+	_body.scale.x = float(_side_facing)
 
 	match _state:
 		State.IDLE:
