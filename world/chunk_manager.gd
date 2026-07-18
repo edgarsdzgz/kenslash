@@ -130,6 +130,9 @@ func _activate_chunk(coord: Vector2i) -> void:
 ## ChunkContent.capture() (integrity / hp, or `gone` at 0). Any change flags the ChunkData
 ## dirty (the future save trigger). The ChunkData STAYS in _store (retained cold data); only
 ## the live Nodes are dropped and queue_freed, so the delta survives to the next activation.
+## E3c: DROP entries are SKIPPED by the paired loop and instead REBUILT afterward -- every
+## surviving Drop child is re-snapshotted into a fresh Kind.DROP entry (resuming its age), so a
+## dropped item persists as cheap data when dormant and respawns on reload, bounded by the E3b cull.
 func _deactivate_chunk(coord: Vector2i) -> void:
 	var container: Node2D = _active[coord]
 	var data: ChunkData = _store[coord]
@@ -137,6 +140,8 @@ func _deactivate_chunk(coord: Vector2i) -> void:
 	var changed: bool = false
 	for i in range(data.entries.size()):
 		var entry: Dictionary = data.entries[i]
+		if int(entry["type"]) == ChunkData.Kind.DROP:
+			continue  # drops are rebuilt from live nodes below, NOT captured per-index here
 		var state: Dictionary = entry["state"]
 		if bool(state.get("gone", false)):
 			continue  # already gone -- nothing live to capture
@@ -150,6 +155,29 @@ func _deactivate_chunk(coord: Vector2i) -> void:
 			changed = true
 		elif ChunkContent.capture(nodes[i], entry):
 			changed = true
+	# --- E3c DROP rebuild -----------------------------------------------------------------
+	# Drops are pure deltas: snapshot live Drop children into fresh Kind.DROP entries. This runs
+	# ONLY AFTER the paired loop above, so nodes[i] stays aligned to entries[i] during capture --
+	# we mutate data.entries (strip + append DROP) exclusively here, past that alignment window.
+	# First drop every existing DROP entry (a persisted drop that was picked up or aged out is no
+	# longer a live child, so it must NOT carry over); then re-derive from the surviving children,
+	# resuming each drop's age/lifetime. A chunk that held or holds drops is a delta chunk (dirty).
+	var had_drop_entries: bool = false
+	var kept_entries: Array[Dictionary] = []
+	for entry in data.entries:
+		if int(entry["type"]) == ChunkData.Kind.DROP:
+			had_drop_entries = true
+		else:
+			kept_entries.append(entry)
+	if had_drop_entries:
+		data.entries = kept_entries
+	var swept_drop: bool = false
+	for child in container.get_children():
+		if child is Drop and is_instance_valid(child) and not child.is_queued_for_deletion():
+			data.entries.append(ChunkContent.drop_entry(child))
+			swept_drop = true
+	if had_drop_entries or swept_drop:
+		changed = true
 	if changed:
 		data.dirty = true
 	_active.erase(coord)
@@ -180,6 +208,13 @@ func active_container(coord: Vector2i) -> Node2D:
 ## proving cold-data retention: a coord stays stored after its Nodes are freed.
 func has_stored(coord: Vector2i) -> bool:
 	return _store.has(coord)
+
+
+## The retained ChunkData for a stored coord, or null if never visited. Test hook mirroring
+## active_container(): lets a test inspect a chunk's persisted delta entries directly (e.g. the
+## E3c DROP write-back -- item_path / count / resumed age) after its Nodes are freed.
+func stored_data(coord: Vector2i) -> ChunkData:
+	return _store.get(coord) as ChunkData
 
 
 ## How many chunks the store retains as dormant DATA (>= the active-Node count once the

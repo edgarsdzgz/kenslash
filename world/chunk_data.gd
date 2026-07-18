@@ -12,9 +12,12 @@ extends RefCounted
 ## store_var-/JSON-safe Dictionary (Vector2i/Vector2 flattened to [x, y] arrays) so
 ## disk/blob persistence later is a save/load CALL, not a redesign.
 
-## Entry kinds. Small enum, extensible -- append new kinds (ITEM, STRUCTURE, ...) as
-## the world grows; never renumber existing values (they persist to disk later).
-enum Kind { TREE, MINERAL, ENEMY }
+## Entry kinds. Small enum, extensible -- append new kinds (STRUCTURE, ...) as the world
+## grows; never renumber existing values (they persist to disk later). DROP (E3c) is a pure
+## DELTA kind: ChunkGenerator never emits one -- a dropped item becomes a DROP entry only on
+## its chunk's unload (ChunkManager snapshots live Drop children), respawned on reload with its
+## remaining lifetime. So drops are cheap serializable DATA when dormant, bounded by the E3b cull.
+enum Kind { TREE, MINERAL, ENEMY, DROP }
 
 ## This chunk's grid coordinate (WorldScale.world_to_chunk space).
 var coord: Vector2i = Vector2i.ZERO

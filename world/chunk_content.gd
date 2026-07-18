@@ -21,6 +21,10 @@ class_name ChunkContent
 const TREE_SCENE: PackedScene = preload("res://world/tree.tscn")
 const ROCK_SCENE: PackedScene = preload("res://world/rock.tscn")
 const ENEMY_SCENE: PackedScene = preload("res://enemy/enemy.tscn")
+## The Drop scene (E3c). Unlike the three above, a DROP entry is never generated -- it is a pure
+## delta the ChunkManager snapshots from live Drop children on unload (drop_entry, below) and
+## respawns here on reload, its item re-load()ed by resource_path and its aging RESUMED.
+const DROP_SCENE: PackedScene = preload("res://world/drop.tscn")
 
 ## Hardness of a streamed mineral. The soft, mineable-with-the-pickaxe stone (matches
 ## world/rock.tscn's default): over = 6 - pickaxe.power 7 <= 0 -> Band A, so it chips.
@@ -67,6 +71,19 @@ static func spawn(entry: Dictionary) -> Node2D:
 					hc.current_health = stored_hp
 				enemy.ready.connect(apply_hp, CONNECT_ONE_SHOT)
 			node = enemy
+		ChunkData.Kind.DROP:
+			# A persisted drop: rebuild the same Drop from its serialized state. load() the
+			# ItemData by its stable resource_path (the item id), restore item+count via setup(),
+			# then RESUME aging -- re-apply the stored lifetime and _age so the reloaded drop
+			# continues toward its E3b cull rather than resetting to a fresh 300s. The caller
+			# positions it at local_pos, same as every other Kind.
+			var d_state: Dictionary = entry["state"]
+			var drop: Drop = DROP_SCENE.instantiate()
+			var item: ItemData = load(d_state["item_path"]) as ItemData
+			drop.setup(item, int(d_state["count"]))
+			drop.lifetime = float(d_state.get("lifetime", 300.0))
+			drop._age = float(d_state.get("age", 0.0))
+			node = drop
 		_:
 			node = Node2D.new()
 
@@ -108,7 +125,31 @@ static func capture(node: Node, entry: Dictionary) -> bool:
 				state["hp"] = hp
 				return true
 			return false
+		ChunkData.Kind.DROP:
+			# Drops are NOT captured through this paired integrity/hp loop -- the ChunkManager
+			# REBUILDS drop entries wholesale from live Drop children on unload (drop_entry, so a
+			# picked-up/aged-out drop simply is not swept and vanishes). Never touch the entry here.
+			return false
 		_:
 			return false
 
-# Verified against: Godot 4.7.1 (2026-07-17)
+
+## Snapshot ONE live Drop into a fresh Kind.DROP ChunkData entry (E3c write-back). Called by the
+## ChunkManager per surviving Drop child on unload -- NOT by the paired capture() loop. Keeping
+## "what a drop entry IS" here (next to spawn's DROP case) preserves this file's single job: the
+## per-Kind data<->node mapping. local_pos is the drop's LOCAL position: it is a child of the
+## container that sits at chunk_origin, the same convention spawn() reads back. The stored `age`
+## + `lifetime` let spawn() RESUME the E3b cull instead of resetting it.
+static func drop_entry(drop: Drop) -> Dictionary:
+	return {
+		"type": ChunkData.Kind.DROP,
+		"local_pos": drop.position,
+		"state": {
+			"item_path": drop.item.resource_path,
+			"count": drop.count,
+			"age": drop._age,
+			"lifetime": drop.lifetime,
+		},
+	}
+
+# Verified against: Godot 4.7.1 (2026-07-18)

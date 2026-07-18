@@ -109,8 +109,11 @@ func _run() -> void:
 	# --- Lifetime cull E3b (self-contained: own short-lived drops far from origin) --------
 	await TestLifetime.new().run(ctx)
 
+	# --- Drop chunk-persistence E3c (self-contained: own ChunkManager in a remote region) -
+	await TestDropPersist.new().run(ctx)
+
 	if ctx.all_pass:
-		print("[PASS] smoke_slash: combat + combo + death + bodies + input seam + durability + streaming + playable + hud + harvest + pickup + lifetime -- all passed")
+		print("[PASS] smoke_slash: combat + combo + death + bodies + input seam + durability + streaming + playable + hud + harvest + pickup + lifetime + drop-persist -- all passed")
 		quit(0)
 	else:
 		_fail("one or more assertions failed")
