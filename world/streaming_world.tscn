@@ -6,9 +6,11 @@
 [ext_resource type="PackedScene" path="res://ui/hud.tscn" id="4_hud"]
 
 [node name="StreamingWorld" type="Node2D"]
+y_sort_enabled = true
 script = ExtResource("1_sw")
 
 [node name="ChunkManager" type="Node2D" parent="."]
+y_sort_enabled = true
 script = ExtResource("2_mgr")
 load_radius = 2
 world_seed = 1

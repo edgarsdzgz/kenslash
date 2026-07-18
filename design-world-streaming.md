@@ -97,4 +97,18 @@ by construction here.
 4. Sim/presentation separable -- the Node is always disposable, the data survives. [C2/C3]
 5. Bounded active set independent of total content -- the C2 test proves it. [C2]
 
-*Verified against: Godot 4.7.1. Last updated: 2026-07-17*
+## Depth sorting in the streamed world (2026-07-18 -- bug fix)
+
+Y-sort (design-world-scale.md, design-durability.md tree-depth) must be enabled on
+EVERY node from the y-sorted root down to the content leaves, or it does not cross
+container boundaries. In `streaming_world.tscn` the player is a sibling of the
+ChunkManager, and trees live at `root -> ChunkManager -> Chunk_x_y container -> tree`,
+so all THREE must set `y_sort_enabled = true`: the StreamingWorld root, the ChunkManager
+node (both in the .tscn), AND each per-chunk container (set in
+`chunk_manager.gd _activate_chunk` when the container Node2D is created). With the chain
+enabled, player and content merge into one depth sort keyed by each node's origin.y
+(feet/base) -- the player draws behind a tree when north of its base, in front when
+south. Missing any level => the player always draws over the trees. Verified by a
+structural assertion in test_streaming (root + manager + a live container all y-sorted).
+
+*Verified against: Godot 4.7.1. Last updated: 2026-07-18*

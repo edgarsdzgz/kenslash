@@ -105,6 +105,10 @@ func _activate_chunk(coord: Vector2i) -> void:
 	var container: Node2D = Node2D.new()
 	container.name = "Chunk_%d_%d" % [coord.x, coord.y]
 	container.position = WorldScale.chunk_origin(coord)
+	# Y-sort must be enabled on EVERY level from the y-sorted root down to the leaves
+	# (root + ChunkManager + this container) so the player and this chunk's content
+	# merge into one depth sort -- otherwise the player always draws over the trees.
+	container.y_sort_enabled = true
 	var nodes: Array = []
 	for entry in data.entries:
 		var state: Dictionary = entry["state"]

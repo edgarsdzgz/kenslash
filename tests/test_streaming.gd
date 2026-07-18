@@ -213,6 +213,14 @@ func run(ctx: TestContext) -> void:
 		ctx.check(sw_mgr.active_chunk_count() == expected,
 			"streaming_world scene streams a bounded " + str(expected) + "-chunk set around its player",
 			"streaming_world scene active count wrong (" + str(sw_mgr.active_chunk_count()) + ")")
+		# Y-sort depth chain: root + ChunkManager + each spawned container must all be
+		# y_sort_enabled, or the player always draws OVER the trees (never behind them).
+		var sw_container: Node2D = sw_mgr.active_container(WorldScale.world_to_chunk(sw_player.global_position))
+		ctx.check(sw.y_sort_enabled and sw_mgr.y_sort_enabled
+				and sw_container != null and sw_container.y_sort_enabled,
+			"y-sort chain enabled (root + ChunkManager + chunk container) -- player sorts behind/in-front of trees by depth",
+			"y-sort chain broken (root=" + str(sw.y_sort_enabled) + " mgr=" + str(sw_mgr.y_sort_enabled)
+				+ " container=" + str(sw_container != null and sw_container.y_sort_enabled) + ")")
 		sw.queue_free()
 		await ctx.tree.physics_frame
 
