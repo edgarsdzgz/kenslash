@@ -52,6 +52,10 @@ const TELEGRAPH_COLOR: Color = Color(1.0, 0.75, 0.15, 1.0)
 ## Seconds a provoked passive type stays hostile with NO new hit AND the target out of leash range
 ## before it calms back to its passive state. See tick_deaggro().
 @export var deaggro_time: float = 6.0
+## XP granted to the player when THIS enemy dies (plan-epic1-parts.md Part 1.2, the kill-XP hook). A
+## flat TUNING constant/default -- integer, no Time/OS/RNG, so a headless test asserts the exact award;
+## a tougher subclass or a scene can override the value directly. See the award in _on_died().
+@export var xp_reward: int = 20
 
 ## Set true the instant the enemy dies. A headless test reads this instead of
 ## racing queue_free()'s deferred deletion.
@@ -308,6 +312,15 @@ func _on_died() -> void:
 	_dying = true
 	is_dead = true # the _physics_process early-return already halts AI/movement.
 	print("[enemy] died -- death lurch + blink, then free")
+
+	# XP-on-kill (plan-epic1-parts.md Part 1.2): the instant this enemy dies, bank its xp_reward on the
+	# player's Progression. Resolved through the "player" group -- the SAME group the AI targets through
+	# -- so the enemy holds no hard path to the player. Awarded ONCE (guarded by the _dying latch above).
+	# SINGLE-PLAYER: the award goes to the local player. MP KILLER-ATTRIBUTION (crediting the peer whose
+	# blow landed, not just the local player) is an Epic 8 seam -- patterns/multiplayer-architecture.md.
+	var killer: Player = get_tree().get_first_node_in_group("player") as Player
+	if killer != null:
+		killer.award_xp(xp_reward)
 
 	# Player passes THROUGH the corpse, and it stops taking / dealing hits.
 	$CollisionShape2D.set_deferred("disabled", true)

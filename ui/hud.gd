@@ -50,6 +50,9 @@ var _stamina_ghost_value: float = 1.0
 @onready var _tool_label: Label = $Backdrop/Column/ToolLabel
 ## Carried-weight readout below the tool label (design-weight.md "HUD"); refreshed each frame.
 @onready var _weight_label: Label = $Backdrop/Column/WeightLabel
+## Level + XP readout (plan-epic1-parts.md Part 1.2): the progression spine's HUD line, refreshed each
+## frame from the player's Progression via the read-only facade -- the player never pushes into the HUD.
+@onready var _level_label: Label = $Backdrop/Column/LevelLabel
 ## The hotbar row lives in its OWN bottom-center anchor (Minecraft-style), separate from the
 ## top-left health/tool Backdrop. A CenterContainer anchored to the bottom edge keeps it
 ## horizontally centered and re-centers automatically on window resize -- no manual math. The
@@ -97,6 +100,7 @@ func _refresh(delta: float) -> void:
 	_refresh_stamina(delta)
 	_refresh_tool()
 	_refresh_weight()
+	_refresh_level()
 	_hotbar.refresh()
 	_refresh_prompt()
 
@@ -151,6 +155,13 @@ func _action_key_text() -> String:
 			var code: int = k.physical_keycode if k.physical_keycode != 0 else k.keycode
 			return OS.get_keycode_string(code)
 	return "?"
+
+
+## Level + XP readout (plan-epic1-parts.md Part 1.2): poll the player's Progression each frame via the
+## read-only facade and render a single legible line "Lv <level>  XP <xp>". Presentation only -- the XP
+## award hooks live in the gameplay path (enemy kills / harvest), never here; the HUD only reads.
+func _refresh_level() -> void:
+	_level_label.text = "Lv %d  XP %d" % [_player.progression_level(), _player.progression_xp()]
 
 
 func _refresh_health() -> void:
@@ -232,6 +243,11 @@ func prompt_text() -> String:
 
 func tool_text() -> String:
 	return _tool_label.text
+
+
+## The level + XP readout currently SHOWN (e.g. "Lv 2  XP 120"), for the headless HUD/XP test.
+func level_text() -> String:
+	return _level_label.text
 
 
 ## The carried-weight readout currently SHOWN (e.g. "Wt 5.1 kg / 50 kg"), for the headless HUD test.

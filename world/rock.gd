@@ -24,6 +24,11 @@ const _YIELD_OFFSET: Vector2 = Vector2(0, -10)
 ## stone per successful pick (a tree, by contrast, yields on fell).
 @export var yield_item: ItemData = preload("res://data/stone.tres")
 
+## XP granted to the player PER affecting mine (plan-epic1-parts.md Part 1.2, harvest-XP hook). A flat
+## TUNING constant -- integer, no Time/OS/RNG -- awarded on every chip (each durability_changed, the
+## mine-to-0 included), mirroring the per-hit stone yield. Banked via HarvestableBody._award_harvest_xp.
+const XP_PER_MINE: int = 5
+
 
 ## Author this rock's material stats (the base defaults are generic placeholders): a soft gray stone.
 func _init() -> void:
@@ -38,6 +43,9 @@ func _on_integrity_changed(current: int, max_val: int) -> void:
 	# (the mine-to-0 one INCLUDED), so each pick chips its stone here -- NOT in _on_broke (that would
 	# double the last stone). A Band-C whiff never reduces integrity, so no stone drops.
 	_spawn_drop(yield_item, global_position + _YIELD_OFFSET)
+	# Harvest XP PER affecting mine (Part 1.2): fires alongside each stone chip. This hook only runs on an
+	# affecting hit, so a Band-C whiff -- which never reaches here -- correctly grants no XP either.
+	_award_harvest_xp(XP_PER_MINE)
 
 
 ## Integrity hit 0: the rock is mined out. The stone for THIS final pick was already spawned by

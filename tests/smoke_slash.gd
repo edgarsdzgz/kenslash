@@ -109,6 +109,9 @@ func _run() -> void:
 	# --- Progression: XP + level curve + two-currency banking (self-contained: pure instances + own player) ---
 	await TestProgression.new().run(ctx)
 
+	# --- XP award hooks (kill/fell/mine/forage) + level boundary + HUD readout (self-contained, remote) ---
+	await TestXpAward.new().run(ctx)
+
 	# --- Boulder terrain Environment #2 (self-contained: own holders/players/boulders + ChunkManager) ---
 	await TestBoulder.new().run(ctx)
 

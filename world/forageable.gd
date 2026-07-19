@@ -16,6 +16,11 @@ extends Node2D
 ## a pebble. Each subclass sets its own in _init(); exported so an authored variant could override it.
 @export var verb: String = "Forage"
 
+## XP granted to the player for foraging this node (plan-epic1-parts.md Part 1.2, harvest-XP hook). A flat
+## TUNING constant shared by every forageable (bush + pebble) -- integer, no Time/OS/RNG -- awarded once
+## per forage in interact(). Smallest of the harvest rewards, matching the low-effort forage.
+const XP_PER_FORAGE: int = 3
+
 
 func _ready() -> void:
 	# Join the group the Interaction subsystem scans (components/interaction.gd), the same group-lookup
@@ -41,6 +46,11 @@ func interact(player: Node) -> void:
 		var count: int = pair[1]
 		if item != null and count > 0:
 			player.collect(item, count)
+	# Harvest XP on forage (Part 1.2): award once to the foraging player. We already HAVE the player here
+	# (the Interaction subsystem passed it in), so this awards directly -- no "player"-group lookup needed,
+	# unlike the attack-driven Tree/Rock. Guarded so a non-player caller cannot crash the harvest.
+	if player.has_method("award_xp"):
+		player.award_xp(XP_PER_FORAGE)
 	queue_free()
 
 

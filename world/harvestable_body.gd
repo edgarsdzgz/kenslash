@@ -89,4 +89,16 @@ func _spawn_drop(item: ItemData, at: Vector2) -> void:
 	parent.add_child.call_deferred(drop)
 	drop.set_deferred("global_position", at)
 
+
+## Award `amount` XP to the local player's Progression for a harvest on this body (plan-epic1-parts.md
+## Part 1.2). Resolved through the "player" group -- the SAME group the pickup magnet + enemy AI use --
+## so the body holds no hard path to the player; a null player (a headless harvest with no player in the
+## tree) is a guarded no-op. The Rock calls this per affecting mine, the Tree once on fell -- each with
+## its own labelled TUNING constant. Deterministic: `amount` is an integer const, no Time/OS/RNG. MP:
+## single-player awards the LOCAL player; per-killer/per-harvester attribution is an Epic 8 seam.
+func _award_harvest_xp(amount: int) -> void:
+	var p: Player = get_tree().get_first_node_in_group("player") as Player
+	if p != null:
+		p.award_xp(amount)
+
 # Verified against: Godot 4.7.1 (2026-07-19)

@@ -479,4 +479,21 @@ func _respawn_in_place() -> void:
 func collect(item: ItemData, count: int) -> int:
 	return _pickup.collect(self, item, count)
 
+
+# --- Progression facade (Part 1.2) ----------------------------------------------------
+## XP award facade -> the Progression. Enemy kills (enemy.gd) and harvest yields (tree/rock/forageable)
+## resolve the player through the "player" group and call this to bank XP, so they never reach into the
+## private _progression themselves. Single-player: the local player. Integer amounts, no Time/OS/RNG --
+## Progression.add_xp does the deterministic level/point banking (Part 1.1, unchanged).
+func award_xp(amount: int) -> void:
+	_progression.add_xp(amount)
+
+
+## Progression readouts the HUD polls each frame for its level/xp line -- the SAME read-only pattern it
+## uses for stamina/health (the player never pushes into the HUD; the HUD reads the player).
+func progression_level() -> int:
+	return _progression.level
+func progression_xp() -> int:
+	return _progression.xp
+
 # Verified against: Godot 4.7.1 (2026-07-19)

@@ -60,6 +60,9 @@ text = "Unarmed"
 [node name="WeightLabel" type="Label" parent="Backdrop/Column"]
 text = "Wt 0 / 50"
 
+[node name="LevelLabel" type="Label" parent="Backdrop/Column"]
+text = "Lv 1  XP 0"
+
 [node name="SelectionLabel" type="Label" parent="."]
 anchor_left = 0.0
 anchor_top = 1.0

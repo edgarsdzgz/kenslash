@@ -24,6 +24,11 @@ const _YIELD_RING_RADIUS: float = 12.0
 @export var yield_item: ItemData = preload("res://data/wood.tres")
 @export var yield_amount: int = 3
 
+## XP granted to the player for FELLING this tree (plan-epic1-parts.md Part 1.2, harvest-XP hook). A flat
+## TUNING constant -- integer, no Time/OS/RNG -- awarded ONCE on fell (integrity 0), unlike the rock's
+## per-mine chip. Banked via the base HarvestableBody._award_harvest_xp("player"-group) helper.
+const XP_PER_FELL: int = 15
+
 
 ## Author this tree's material stats (the base defaults are generic placeholders): soft green wood the
 ## axe (power 5) fells with zero wear (Band A).
@@ -42,6 +47,9 @@ func _on_integrity_changed(current: int, max_val: int) -> void:
 ## after it has fallen), lie a beat, and free. Overrides the base's plain queue_free.
 func _on_broke() -> void:
 	print("[tree] felled")
+	# Harvest XP on FELL (Part 1.2): award once at the felling moment (integrity 0), independent of the
+	# wood-burst which the fall animation defers -- so a headless test sees the XP the instant it topples.
+	_award_harvest_xp(XP_PER_FELL)
 	_fall_break_and_free()
 
 
