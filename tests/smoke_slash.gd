@@ -124,8 +124,11 @@ func _run() -> void:
 	# --- Player controls: stamina + sprint + dodge (self-contained: own players/enemies remote) ---
 	await TestControls.new().run(ctx)
 
+	# --- Elephant-Tank behaviour: GRAZE/ENRAGED/CALM + telegraphed stomp (self-contained, remote) ---
+	await TestTank.new().run(ctx)
+
 	if ctx.all_pass:
-		print("[PASS] smoke_slash: combat + combo + death + bodies + input seam + durability + streaming + playable + hud + encumbrance + harvest + pickup + lifetime + drop-persist + forage + pebble + controls -- all passed")
+		print("[PASS] smoke_slash: combat + combo + death + bodies + input seam + durability + streaming + playable + hud + encumbrance + harvest + pickup + lifetime + drop-persist + forage + pebble + controls + tank -- all passed")
 		quit(0)
 	else:
 		_fail("one or more assertions failed")

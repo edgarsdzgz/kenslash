@@ -12,6 +12,12 @@ extends CharacterBody2D
 
 enum State { IDLE, CHASE, ATTACK }
 
+## Shared telegraph tint (design-enemies.md "Telegraph -> strike"): the readable amber warning
+## an attack pulses on its Body during a wind-up, before its hitbox goes live. Amber so it reads
+## apart from the white hit-flash and the reddish AttackVisual. Reused by every telegraphed
+## attack (the Tank's stomp now; the Charger's wind-up in a later phase).
+const TELEGRAPH_COLOR: Color = Color(1.0, 0.75, 0.15, 1.0)
+
 ## Player is noticed (IDLE -> CHASE) once inside this radius, in pixels.
 @export var detection_range: float = 180.0
 ## Close enough to swing (CHASE -> ATTACK), in pixels.
@@ -39,6 +45,14 @@ enum State { IDLE, CHASE, ATTACK }
 ## exists; a bare flesh enemy has no armor and its Hurtbox keeps its scene values.
 @export var flesh_def: int = 1
 @export var flesh_hardness: int = 2
+## Shared aggro knobs (design-enemies.md "Aggro / provoke states") -- the fairness backbone reused
+## by every PASSIVE enemy type (the Tank now; Charger/Spitter later). The IDLE/CHASE/ATTACK chaser
+## predates the passive model and leaves them unused, so setting them here is inert for enemy.tscn.
+## Seconds of readable wind-up a telegraphed strike plays before its hitbox goes live.
+@export var telegraph_time: float = 0.9
+## Seconds a provoked passive type stays hostile with NO new hit AND the target out of leash range
+## before it calms back to its passive state. See tick_deaggro().
+@export var deaggro_time: float = 6.0
 
 ## Set true the instant the enemy dies. A headless test reads this instead of
 ## racing queue_free()'s deferred deletion.
@@ -65,6 +79,9 @@ var _target: Node2D = null
 var _move_velocity: Vector2 = Vector2.ZERO
 ## Decaying knockback impulse, added on top of movement.
 var _knockback: Vector2 = Vector2.ZERO
+## Shared de-aggro clock (design-enemies.md): time accumulated with the target continuously out of
+## contact. Reset on every new hit / in-contact frame; drives the calm-down. See tick_deaggro().
+var _deaggro_elapsed: float = 0.0
 
 @onready var _body: Polygon2D = $Body
 ## The DOWN-facing "face" circle, a child of Body so it rides its visibility + modulate.
@@ -214,6 +231,42 @@ func attack() -> void:
 	_on_cooldown = false
 
 
+## Shared telegraph -> strike backbone (design-enemies.md). Pulse the Body to the amber warning
+## tint and back over `duration` seconds -- a readable wind-up any COMMITTED attack plays before
+## its hitbox goes live -- then return so the caller strikes. Awaitable: a subclass does
+## `await telegraph_windup(telegraph_time)` and only THEN enables its AttackHitbox, so the player
+## always gets a fair "tell". Reused by the Tank's stomp now (and the Charger's wind-up later).
+## Restores WHITE on completion; a zero/negative duration is a no-op (fires with no wind-up).
+func telegraph_windup(duration: float) -> void:
+	if duration <= 0.0 or not is_instance_valid(_body):
+		return
+	var warn: Tween = create_tween()
+	warn.tween_property(_body, "modulate", TELEGRAPH_COLOR, duration * 0.5)
+	warn.tween_property(_body, "modulate", Color.WHITE, duration * 0.5)
+	await get_tree().create_timer(duration).timeout
+	if is_instance_valid(_body):
+		_body.modulate = Color.WHITE
+
+
+## Shared de-aggro clock (design-enemies.md "Aggro / provoke states"). A provoked passive type
+## calls this each physics frame with whether the target is still in CONTACT (in leash range this
+## frame, OR hit this frame -- provoke() zeroes the clock). While in contact the clock stays 0;
+## once the target is continuously out of contact for `deaggro_time`, it returns true, signalling
+## the subclass to drop back to its passive state. Reusable by any passive type; the chaser never
+## calls it.
+func tick_deaggro(delta: float, in_contact: bool) -> bool:
+	if in_contact:
+		_deaggro_elapsed = 0.0
+		return false
+	_deaggro_elapsed += delta
+	return _deaggro_elapsed >= deaggro_time
+
+
+## Zero the de-aggro clock (a fresh provoke / new hit restarts the calm-down countdown).
+func reset_deaggro() -> void:
+	_deaggro_elapsed = 0.0
+
+
 ## Armor durability hit 0: the plate is gone. Drop the Hurtbox to the flesh baseline
 ## so both HP mitigation (def) and hardness fall -- softer hits from here on.
 func _on_armor_broke() -> void:
@@ -285,4 +338,4 @@ func _on_died() -> void:
 	if is_instance_valid(self):
 		queue_free()
 
-# Verified against: Godot 4.7.1 (2026-07-18)
+# Verified against: Godot 4.7.1 (2026-07-19)
