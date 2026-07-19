@@ -53,4 +53,23 @@ returns slot/stack overflow, never a weight refusal). The speed scale:
 - No volume/bulk separate from weight. No per-slot weight. No equip-vs-stored weight split
   (everything carried counts). No item-specific "too heavy to pick up a single unit" rule.
 
-*Verified against: Godot 4.7.1. Last updated: 2026-07-18*
+## REVISION 1 -- real-world units in GRAMS (2026-07-19, user; approved)
+The abstract weights (fiber 0.1 ... stone 1.0) are replaced with researched real-world weights,
+stored in GRAMS as the base unit so tiny items (fiber) and heavy ones (pickaxe) both read well.
+- **Per-item weight (grams)** -- typical real figures, range midpoints (tunable):
+  * Fiber 25 (handful of plant fiber) · Stick 50 (~35cm stick) · Stone 1000 (hand-sized cobble,
+    density ~2.6) · Wood 1500 (split log / plank bundle).
+  * Sword 1100 (1-hand arming sword 1.0-1.4kg) · Axe 1500 (1-2kg) · Pickaxe 2500 (2-3kg).
+- **carry_capacity = 50000 g (50 kg)** -- starting tools 5100 g -> ratio ~0.1 (Normal). Real
+  overload bites near 50 kg; a full 255-stack of stone (255 kg) is deep in Ultra.
+- **Encumbrance is UNCHANGED** -- the tiers are ratios (carried_g / capacity_g), so the
+  NORMAL/OVER/SUPER/ULTRA cutoffs (1x/2x/3x) and speeds (1.0/0.75/0.50/0.25) carry over verbatim;
+  only the raw numbers become grams.
+- **HUD display = auto g / kg (DECIDED)**: carried/capacity < 1000 g shows grams ("800 g"),
+  >= 1000 g shows kilograms ("12.5 kg"); readout like "12.5 kg / 50 kg  Overencumbered".
+  (Stored always in grams; a `_fmt_grams(g)` helper picks g vs kg. `carry_capacity` becomes 50000.)
+- Build: retune the 7 `.tres` weight values to grams + set `carry_capacity = 50000`; add the
+  g/kg formatter to the HUD readout; update the weight tests to the gram values. The pebble's
+  yield is Stone, so it inherits Stone's 1000 g automatically.
+
+*Verified against: Godot 4.7.1. Last updated: 2026-07-19*
