@@ -133,8 +133,11 @@ func _run() -> void:
 	# --- Charger dash-bruiser: TRACK/WINDUP/CHARGE/RECOVER + locked straight-line overshoot ---
 	await TestCharger.new().run(ctx)
 
+	# --- Spitter ranged kiter: REPOSITION/AIM/FIRE + the reusable Projectile (travel/hit/cull) ---
+	await TestSpitter.new().run(ctx)
+
 	if ctx.all_pass:
-		print("[PASS] smoke_slash: combat + combo + death + bodies + input seam + durability + streaming + playable + hud + encumbrance + harvest + pickup + lifetime + drop-persist + forage + pebble + controls + tank + swordsman + charger -- all passed")
+		print("[PASS] smoke_slash: combat + combo + death + bodies + input seam + durability + streaming + playable + hud + encumbrance + harvest + pickup + lifetime + drop-persist + forage + pebble + controls + tank + swordsman + charger + spitter -- all passed")
 		quit(0)
 	else:
 		_fail("one or more assertions failed")
