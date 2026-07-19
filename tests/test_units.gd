@@ -236,62 +236,62 @@ func _inventory_unit_tests(ctx: TestContext) -> void:
 
 
 func _weight_unit_tests(ctx: TestContext) -> void:
-	# --- design-weight.md: per-unit weight, total_weight/weight_ratio, encumbrance_factor -----
+	# --- design-weight.md REVISION 1 (GRAMS): per-unit weight, total_weight/weight_ratio, factor ----
 	var WOOD: ItemData = load("res://data/wood.tres")
 	var STONE: ItemData = load("res://data/stone.tres")
-	ctx.check(WOOD.weight == 0.5 and STONE.weight == 1.0 and Player.SWORD_DATA.weight == 2.0,
-		"per-unit weights load from .tres (wood 0.5, stone 1.0, sword 2.0)",
+	ctx.check(WOOD.weight == 1500.0 and STONE.weight == 1000.0 and Player.SWORD_DATA.weight == 1100.0,
+		"per-unit weights load from .tres in grams (wood 1500, stone 1000, sword 1100)",
 		"per-unit weights wrong (wood=" + str(WOOD.weight) + " stone=" + str(STONE.weight) + " sword=" + str(Player.SWORD_DATA.weight) + ")")
 
-	# Fresh inventory weighs nothing and carries the default 50 capacity.
+	# Fresh inventory weighs nothing and carries the default 50000 g (50 kg) capacity.
 	var wt_inv: Inventory = Inventory.new()
-	ctx.check(wt_inv.total_weight() == 0.0 and wt_inv.carry_capacity == 50.0,
-		"fresh Inventory: total_weight 0.0, carry_capacity default 50",
+	ctx.check(wt_inv.total_weight() == 0.0 and wt_inv.carry_capacity == 50000.0,
+		"fresh Inventory: total_weight 0.0 g, carry_capacity default 50000 g (50 kg)",
 		"fresh Inventory weight/capacity wrong (w=" + str(wt_inv.total_weight()) + " cap=" + str(wt_inv.carry_capacity) + ")")
 
-	# 10 wood (0.5) + 4 stone (1.0) = 9.0; ratio = 9.0/50. Tool weight counts too: +sword -> 11.0.
+	# 10 wood (1500) + 4 stone (1000) = 19000 g; ratio = 19000/50000. Tool weight counts too: +sword -> 20100.
 	wt_inv.add_item(WOOD, 10)
 	wt_inv.add_item(STONE, 4)
-	ctx.check(is_equal_approx(wt_inv.total_weight(), 9.0) and is_equal_approx(wt_inv.weight_ratio(), 9.0 / 50.0),
-		"total_weight sums 10*0.5 + 4*1.0 == 9.0, weight_ratio == 9.0/50",
+	ctx.check(is_equal_approx(wt_inv.total_weight(), 19000.0) and is_equal_approx(wt_inv.weight_ratio(), 19000.0 / 50000.0),
+		"total_weight sums 10*1500 + 4*1000 == 19000 g, weight_ratio == 19000/50000",
 		"weight math wrong (total=" + str(wt_inv.total_weight()) + " ratio=" + str(wt_inv.weight_ratio()) + ")")
 	wt_inv.add_item(Player.SWORD_DATA, 1)
-	ctx.check(is_equal_approx(wt_inv.total_weight(), 11.0),
-		"a tool's weight counts too: +sword (2.0) -> total_weight 11.0",
+	ctx.check(is_equal_approx(wt_inv.total_weight(), 20100.0),
+		"a tool's weight counts too: +sword (1100) -> total_weight 20100 g",
 		"tool weight not counted (total=" + str(wt_inv.total_weight()) + ")")
 
-	# The STARTING player loadout (sword+axe+pickaxe) weighs 2.0+2.5+3.0 == 7.5.
+	# The STARTING player loadout (sword+axe+pickaxe) weighs 1100+1500+2500 == 5100 g.
 	var load_inv: Inventory = Inventory.new()
 	load_inv.add_tool(Player.SWORD_DATA)
 	load_inv.add_tool(Player.AXE_DATA)
 	load_inv.add_tool(Player.PICKAXE_DATA)
-	ctx.check(is_equal_approx(load_inv.total_weight(), 7.5),
-		"starting loadout sword+axe+pickaxe weighs 7.5 (ratio 0.15 -> full-speed, no movement regression)",
+	ctx.check(is_equal_approx(load_inv.total_weight(), 5100.0),
+		"starting loadout sword+axe+pickaxe weighs 5100 g (ratio 0.102 -> full-speed, no movement regression)",
 		"starting loadout weight wrong (total=" + str(load_inv.total_weight()) + ")")
 
-	# encumbrance_factor across the GENTLE tier scheme: capacity 10 + stone (1.0 each) so stone
-	# count == ratio*10. Tiers (lower, upper]: ratio 0.5 & 1.0 -> NORMAL 1.0; 2.0 -> OVER 0.75
-	# (2.0 is the OVER upper edge, inclusive); 5.0 -> ULTRA 0.25 (the floored crawl, never lower).
+	# encumbrance_factor across the GENTLE tier scheme (RATIO-based, UNCHANGED): capacity 10000 g +
+	# stone (1000 g each) so stone count == ratio*10. Tiers (lower, upper]: ratio 0.5 & 1.0 -> NORMAL
+	# 1.0; 2.0 -> OVER 0.75 (2.0 is the OVER upper edge, inclusive); 5.0 -> ULTRA 0.25 (floored crawl).
 	var ef_under: Inventory = Inventory.new()
-	ef_under.carry_capacity = 10.0
+	ef_under.carry_capacity = 10000.0
 	ef_under.add_item(STONE, 5)
 	ctx.check(is_equal_approx(ef_under.encumbrance_factor(), 1.0) and ef_under.encumbrance_tier() == Inventory.Encumbrance.NORMAL,
 		"encumbrance_factor: ratio 0.5 (under capacity) -> 1.0 (NORMAL, full speed)",
 		"encumbrance_factor ratio 0.5 wrong (got " + str(ef_under.encumbrance_factor()) + " tier " + str(ef_under.encumbrance_tier()) + ")")
 	var ef_at: Inventory = Inventory.new()
-	ef_at.carry_capacity = 10.0
+	ef_at.carry_capacity = 10000.0
 	ef_at.add_item(STONE, 10)
 	ctx.check(is_equal_approx(ef_at.encumbrance_factor(), 1.0) and ef_at.encumbrance_tier() == Inventory.Encumbrance.NORMAL,
 		"encumbrance_factor: ratio 1.0 (exactly at capacity) -> 1.0 (NORMAL boundary, full speed)",
 		"encumbrance_factor ratio 1.0 wrong (got " + str(ef_at.encumbrance_factor()) + " tier " + str(ef_at.encumbrance_tier()) + ")")
 	var ef_twice: Inventory = Inventory.new()
-	ef_twice.carry_capacity = 10.0
+	ef_twice.carry_capacity = 10000.0
 	ef_twice.add_item(STONE, 20)
 	ctx.check(is_equal_approx(ef_twice.encumbrance_factor(), 0.75) and ef_twice.encumbrance_tier() == Inventory.Encumbrance.OVER,
 		"encumbrance_factor: ratio 2.0 -> 0.75 (OVER upper boundary, still Overencumbered)",
 		"encumbrance_factor ratio 2.0 wrong (got " + str(ef_twice.encumbrance_factor()) + " tier " + str(ef_twice.encumbrance_tier()) + ")")
 	var ef_far: Inventory = Inventory.new()
-	ef_far.carry_capacity = 10.0
+	ef_far.carry_capacity = 10000.0
 	ef_far.add_item(STONE, 50)
 	ctx.check(is_equal_approx(ef_far.encumbrance_factor(), 0.25) and ef_far.encumbrance_tier() == Inventory.Encumbrance.ULTRA,
 		"encumbrance_factor: ratio 5.0 -> 0.25 (ULTRA crawl, never lower)",
@@ -398,4 +398,4 @@ func _entries_equal(a: Array[Dictionary], b: Array[Dictionary]) -> bool:
 			return false
 	return true
 
-# Verified against: Godot 4.7.1 (2026-07-18)
+# Verified against: Godot 4.7.1 (2026-07-19)

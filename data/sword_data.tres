@@ -14,4 +14,4 @@ harvest_type = 0
 has_combo = true
 blade_color = Color(0.85, 0.9, 1, 1)
 blade_shape = PackedVector2Array(-16, -2, 9, -2, 16, 0, 9, 2, -16, 2)
-weight = 2.0
+weight = 1100.0

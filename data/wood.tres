@@ -9,4 +9,4 @@ max_stack = 255
 glyph = "W"
 color = Color(0.4, 0.26, 0.13, 1)
 icon_shape = PackedVector2Array(-13, -5, 11, -5, 13, -2, 13, 2, 11, 5, -13, 5)
-weight = 0.5
+weight = 1500.0

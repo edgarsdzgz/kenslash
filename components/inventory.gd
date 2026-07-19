@@ -34,11 +34,13 @@ var equipped_index: int = 0
 ## True = unlocked: scroll/Q/E wrap across the WHOLE inventory. Never affects
 ## number-key direct jumps (equip_index), which are always unrestricted by lock.
 var hotbar_unlocked: bool = false
-## Carry-capacity stat (design-weight.md, DECIDED default 50): the carried weight at/under
-## which the player moves at full speed. Over it, encumbrance_factor() slows movement (never
-## blocks pickup). Lives on the Inventory so the whole weight model travels with the item
-## data (the player reads it via its `inventory` facade); tunable per save/difficulty later.
-var carry_capacity: float = 50.0
+## Carry-capacity stat in GRAMS (design-weight.md REVISION 1, DECIDED default 50000 g = 50 kg):
+## the carried weight at/under which the player moves at full speed. Over it, encumbrance_factor()
+## slows movement (never blocks pickup). Weights are stored in grams, so this is grams too and
+## weight_ratio() stays a pure grams/grams ratio (the tiers are unchanged). Lives on the Inventory
+## so the whole weight model travels with the item data (the player reads it via its `inventory`
+## facade); tunable per save/difficulty later.
+var carry_capacity: float = 50000.0
 
 ## Encumbrance TIERS (design-weight.md "Over-capacity behavior", GENTLE scheme). Instead of a
 ## continuous linear slow-down, the carried/capacity ratio falls into one of four DISCRETE bands,

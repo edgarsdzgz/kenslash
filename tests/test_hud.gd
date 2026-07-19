@@ -170,44 +170,44 @@ func run(ctx: TestContext) -> void:
 		"selecting an EMPTY slot shows no selection popup",
 		"empty-slot selection wrongly showed a popup (\"" + hud.selection_text() + "\")")
 
-	# --- design-weight.md Phase 3: carried-weight HUD readout + per-tier encumbrance state --------
-	# State here: the starting loadout (sword+axe+pickaxe = 7.5) + the 5 Wood added above (2.5) =
-	# 10.0 carried against the default capacity 50 -> ratio 0.2, NORMAL tier, normal (white) tint,
-	# no tier name appended.
-	ctx.check(hud.weight_text() == "Wt 10 / 50" and not hud.weight_over() and hud.weight_tier() == Inventory.Encumbrance.NORMAL,
-		"HUD weight readout shows carried/cap 'Wt 10 / 50' in the normal (NORMAL tier, white) state (\"" + hud.weight_text() + "\")",
+	# --- design-weight.md REVISION 1: carried-weight HUD readout (auto g/kg) + per-tier state --------
+	# State here: the starting loadout (sword+axe+pickaxe = 5100 g) + the 5 Wood added above
+	# (5*1500 = 7500 g) = 12600 g carried against the default capacity 50000 g -> ratio 0.252, NORMAL
+	# tier, normal (white) tint, no tier name. Both sides auto-scale to kg: "Wt 12.6 kg / 50 kg".
+	ctx.check(hud.weight_text() == "Wt 12.6 kg / 50 kg" and not hud.weight_over() and hud.weight_tier() == Inventory.Encumbrance.NORMAL,
+		"HUD weight readout shows carried/cap 'Wt 12.6 kg / 50 kg' in the normal (NORMAL tier, white) state (\"" + hud.weight_text() + "\")",
 		"HUD weight readout wrong under capacity (\"" + hud.weight_text() + "\" over=" + str(hud.weight_over()) + " tier=" + str(hud.weight_tier()) + ")")
 
-	# OVER tier: +45 Stone (45.0) -> 55.0 / 50, ratio 1.1 in (1.0, 2.0] -> Overencumbered. The tier
-	# NAME is appended and the tint warns.
+	# OVER tier: +50 Stone (50*1000 = 50000 g) -> 62600 g / 50000, ratio 1.252 in (1.0, 2.0] ->
+	# Overencumbered. The tier NAME is appended and the tint warns.
 	var stone_item: ItemData = load("res://data/stone.tres")
-	player.inventory.add_item(stone_item, 45)
+	player.inventory.add_item(stone_item, 50)
 	await ctx.settle_idle()
-	ctx.check(hud.weight_text() == "Wt 55 / 50  Overencumbered" and hud.weight_over() and hud.weight_tier() == Inventory.Encumbrance.OVER,
-		"HUD weight readout enters OVER tier ('Wt 55 / 50  Overencumbered', tinted)",
+	ctx.check(hud.weight_text() == "Wt 62.6 kg / 50 kg  Overencumbered" and hud.weight_over() and hud.weight_tier() == Inventory.Encumbrance.OVER,
+		"HUD weight readout enters OVER tier ('Wt 62.6 kg / 50 kg  Overencumbered', tinted)",
 		"HUD weight readout wrong in OVER tier (\"" + hud.weight_text() + "\" over=" + str(hud.weight_over()) + " tier=" + str(hud.weight_tier()) + ")")
 
-	# SUPER tier: lower carry_capacity to 25 (read live) -> 55.0 / 25, ratio 2.2 in (2.0, 3.0] ->
-	# Superencumbered.
-	player.inventory.carry_capacity = 25.0
+	# SUPER tier: lower carry_capacity to 25000 g (read live) -> 62600 / 25000, ratio 2.504 in
+	# (2.0, 3.0] -> Superencumbered.
+	player.inventory.carry_capacity = 25000.0
 	await ctx.settle_idle()
-	ctx.check(hud.weight_text() == "Wt 55 / 25  Superencumbered" and hud.weight_over() and hud.weight_tier() == Inventory.Encumbrance.SUPER,
-		"HUD weight readout enters SUPER tier ('Wt 55 / 25  Superencumbered', tinted)",
+	ctx.check(hud.weight_text() == "Wt 62.6 kg / 25 kg  Superencumbered" and hud.weight_over() and hud.weight_tier() == Inventory.Encumbrance.SUPER,
+		"HUD weight readout enters SUPER tier ('Wt 62.6 kg / 25 kg  Superencumbered', tinted)",
 		"HUD weight readout wrong in SUPER tier (\"" + hud.weight_text() + "\" over=" + str(hud.weight_over()) + " tier=" + str(hud.weight_tier()) + ")")
 
-	# ULTRA tier: lower carry_capacity to 15 -> 55.0 / 15, ratio ~3.67 > 3.0 -> Ultraencumbered.
-	player.inventory.carry_capacity = 15.0
+	# ULTRA tier: lower carry_capacity to 15000 g -> 62600 / 15000, ratio ~4.17 > 3.0 -> Ultraencumbered.
+	player.inventory.carry_capacity = 15000.0
 	await ctx.settle_idle()
-	ctx.check(hud.weight_text() == "Wt 55 / 15  Ultraencumbered" and hud.weight_over() and hud.weight_tier() == Inventory.Encumbrance.ULTRA,
-		"HUD weight readout enters ULTRA tier ('Wt 55 / 15  Ultraencumbered', tinted)",
+	ctx.check(hud.weight_text() == "Wt 62.6 kg / 15 kg  Ultraencumbered" and hud.weight_over() and hud.weight_tier() == Inventory.Encumbrance.ULTRA,
+		"HUD weight readout enters ULTRA tier ('Wt 62.6 kg / 15 kg  Ultraencumbered', tinted)",
 		"HUD weight readout wrong in ULTRA tier (\"" + hud.weight_text() + "\" over=" + str(hud.weight_over()) + " tier=" + str(hud.weight_tier()) + ")")
 
-	# Back UNDER capacity by raising the carry_capacity stat: 55.0 / 100 -> ratio 0.55, NORMAL tier,
-	# normal tint, no name appended.
-	player.inventory.carry_capacity = 100.0
+	# Back UNDER capacity by raising the carry_capacity stat: 62600 / 100000 -> ratio 0.626, NORMAL
+	# tier, normal tint, no name appended.
+	player.inventory.carry_capacity = 100000.0
 	await ctx.settle_idle()
-	ctx.check(hud.weight_text() == "Wt 55 / 100" and not hud.weight_over() and hud.weight_tier() == Inventory.Encumbrance.NORMAL,
-		"HUD weight readout returns to the normal (NORMAL tier) state once back under capacity ('Wt 55 / 100')",
+	ctx.check(hud.weight_text() == "Wt 62.6 kg / 100 kg" and not hud.weight_over() and hud.weight_tier() == Inventory.Encumbrance.NORMAL,
+		"HUD weight readout returns to the normal (NORMAL tier) state once back under capacity ('Wt 62.6 kg / 100 kg')",
 		"HUD weight readout did not clear the warning under capacity (\"" + hud.weight_text() + "\" over=" + str(hud.weight_over()) + " tier=" + str(hud.weight_tier()) + ")")
 
 	sw.queue_free()

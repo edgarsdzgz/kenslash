@@ -121,24 +121,33 @@ func _refresh() -> void:
 	_refresh_selection()
 
 
-## Carried-weight readout (design-weight.md "HUD"): "Wt <carried> / <capacity>", and -- when
-## encumbered -- the TIER NAME appended (e.g. "Wt 90 / 50  Overencumbered") with a per-tier warning
-## tint (white -> yellow -> orange -> red). The tier is owned by the Inventory (encumbrance_tier());
-## the HUD only maps int -> name/tint. Presentation only -- state reads, no game logic added.
+## Carried-weight readout (design-weight.md REVISION 1 "HUD"): "Wt <carried> / <capacity>" with
+## each side auto-scaled g vs kg by _fmt_grams, and -- when encumbered -- the TIER NAME appended
+## (e.g. "Wt 60 kg / 50 kg  Overencumbered") with a per-tier warning tint (white -> yellow ->
+## orange -> red). The tier is owned by the Inventory (encumbrance_tier()); the HUD only maps
+## int -> name/tint. Presentation only -- state reads, no game logic added.
 func _refresh_weight() -> void:
 	var inv: Inventory = _player.inventory
 	var tier: int = inv.encumbrance_tier()
-	var text: String = "Wt %s / %s" % [_fmt_weight(inv.total_weight()), _fmt_weight(inv.carry_capacity)]
+	var text: String = "Wt %s / %s" % [_fmt_grams(inv.total_weight()), _fmt_grams(inv.carry_capacity)]
 	if tier != Inventory.Encumbrance.NORMAL:
 		text += "  " + WEIGHT_TIER_NAMES[tier]
 	_weight_label.text = text
 	_weight_label.modulate = WEIGHT_TIER_COLORS[tier]
 
 
-## Trim a weight for display: a whole value reads "10" (not str()'s "10.0"), a fractional one keeps
-## its decimals ("12.5") -- the design "Wt 12.5 / 50" format. Godot's % has no %g to do this.
-func _fmt_weight(v: float) -> String:
-	return str(int(v)) if v == floorf(v) else str(v)
+## Auto g/kg formatter for a gram weight (design-weight.md REVISION 1, DECIDED): under 1000 g shows
+## whole grams ("800 g", rounded); 1000 g and up shows kilograms with up to ONE decimal, its trailing
+## ".0" trimmed so a round value reads clean -- 1000 -> "1 kg", 1500 -> "1.5 kg", 5100 -> "5.1 kg",
+## 50000 -> "50 kg", 19000 -> "19 kg". Godot's % has no %g, so the decimal is built via "%.1f" then
+## the ".0" tail is stripped by hand.
+func _fmt_grams(g: float) -> String:
+	if g < 1000.0:
+		return "%d g" % roundi(g)
+	var text: String = "%.1f" % (g / 1000.0)
+	if text.ends_with(".0"):
+		text = text.substr(0, text.length() - 2)
+	return text + " kg"
 
 
 ## Item-name selection popup (Change 2): when the equipped slot changes -- a new index, OR the
@@ -378,7 +387,7 @@ func tool_text() -> String:
 	return _tool_label.text
 
 
-## The carried-weight readout currently SHOWN (e.g. "Wt 12.5 / 50"), for the headless HUD test.
+## The carried-weight readout currently SHOWN (e.g. "Wt 5.1 kg / 50 kg"), for the headless HUD test.
 func weight_text() -> String:
 	return _weight_label.text
 

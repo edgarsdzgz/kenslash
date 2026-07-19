@@ -4,7 +4,7 @@ class_name TestEncumbrance extends RefCounted
 ## leg asserts encumbrance_factor()/encumbrance_tier() across every tier band and its boundaries;
 ## the movement leg drives two freshly instantiated players RIGHT via input_override (the
 ## multiplayer/test seam) for a fixed number of physics frames: one at the STARTING loadout
-## (7.5 / 50, ratio 0.15 -> NORMAL, factor 1.0, full speed) and one stuffed deep into ULTRA with
+## (5100 / 50000 g, ratio ~0.102 -> NORMAL, factor 1.0, full speed) and one stuffed deep into ULTRA with
 ## stone (ratio > 3 -> factor 0.25). The over-capacity player must travel measurably LESS far,
 ## while the at/under-capacity player runs at the full unencumbered factor -- so every EXISTING
 ## movement leg (all under capacity) is unaffected. Self-contained: builds + frees its own players
@@ -27,14 +27,14 @@ func run(ctx: TestContext) -> void:
 		return
 	var STONE: ItemData = load("res://data/stone.tres")
 
-	# Unencumbered: the starting loadout only (7.5 / 50). Parked far from every other body so
+	# Unencumbered: the starting loadout only (5100 / 50000 g). Parked far from every other body so
 	# nothing collides with or chases it during the drive. Magnet off -- no stray pickups.
 	var light: Player = player_scene.instantiate() as Player
 	light.pickup_radius = 0.0
 	ctx.tree.root.add_child(light)
 	light.global_position = Vector2(12000, 12000)
 
-	# Over capacity: the same loadout + 200 stone (200.0) -> total 207.5 / 50, ratio > 3, so the
+	# Over capacity: the same loadout + 200 stone (200000 g) -> total 205100 / 50000, ratio ~4.1 > 3, so the
 	# encumbrance factor sits at the ULTRA 0.25 crawl -- a wide, unambiguous gap from the light
 	# player. add_item runs AFTER add_child (so _ready wired the Equipment/inventory first). Parked
 	# far in the opposite direction.
@@ -89,13 +89,13 @@ func run(ctx: TestContext) -> void:
 	await ctx.settle_idle()
 
 
-## Pure Inventory math for the GENTLE tier scheme -- no scene needed. Capacity 10, stone (1.0 each)
-## so stone count == ratio * 10. Walks every band + its inclusive upper boundary: 0.5/1.0 -> NORMAL
+## Pure Inventory math for the GENTLE tier scheme -- no scene needed. Capacity 10000 g, stone (1000 g
+## each) so stone count == ratio * 10. Walks every band + its inclusive upper boundary: 0.5/1.0 -> NORMAL
 ## 1.0; 1.5/2.0 -> OVER 0.75; 2.5/3.0 -> SUPER 0.50; 3.5/5.0 -> ULTRA 0.25. Confirms both the factor
 ## and the tier enum at each representative ratio, including that thresholds fall to the LIGHTER tier.
 func _tier_unit_legs(ctx: TestContext) -> void:
 	var STONE: ItemData = load("res://data/stone.tres")
-	# ratio -> (expected factor, expected tier). Stone count = ratio * 10 against capacity 10.
+	# ratio -> (expected factor, expected tier). Stone count = ratio * 10 against capacity 10000 g.
 	var cases: Array = [
 		[0.5, 1.0, Inventory.Encumbrance.NORMAL],
 		[1.0, 1.0, Inventory.Encumbrance.NORMAL],
@@ -111,7 +111,7 @@ func _tier_unit_legs(ctx: TestContext) -> void:
 		var want_factor: float = case[1]
 		var want_tier: int = case[2]
 		var inv: Inventory = Inventory.new()
-		inv.carry_capacity = 10.0
+		inv.carry_capacity = 10000.0
 		inv.add_item(STONE, int(ratio * 10.0))
 		ctx.check(is_equal_approx(inv.encumbrance_factor(), want_factor) and inv.encumbrance_tier() == want_tier,
 			"encumbrance tier: ratio " + str(ratio) + " -> factor " + str(want_factor) + " tier " + str(want_tier),
