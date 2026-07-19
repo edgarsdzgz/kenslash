@@ -55,6 +55,15 @@ var _sword_pivot: Node2D = null
 var _blade: Polygon2D = null
 ## The Sword's CollisionShape2D (the hitbox extent) -- enabled during a swing, disabled after.
 var _sword_shape: CollisionShape2D = null
+## The Sword Hitbox itself (the CollisionShape2D's parent) -- the Area2D whose `atk` the Hurtbox reads on
+## overlap. Cached in setup() so a MELEE_DAMAGE talent can add its bonus onto this swing's atk (Part 2.2b)
+## WITHOUT player.gd growing a field/facade. Equipment owns the BASE atk (per equipped tool); this only
+## adds/removes the talent bonus for the swing's duration, leaving that base untouched between swings.
+var _sword_hitbox: Hitbox = null
+## The MELEE_DAMAGE talent bonus currently ADDED onto _sword_hitbox.atk (Part 2.2b). Tracked so the exact
+## amount added at swing start is the exact amount removed at swing end/cancel -- so a cancelled swing (a
+## mid-swing death) can never leave the bonus double-stacked onto the next swing. 0 between swings.
+var _melee_bonus_applied: int = 0
 ## The one-shot ComboResetTimer -- started at swing END to hold the continue-window open, and
 ## stopped when a swing begins so the window cannot expire mid-swing.
 var _combo_reset_timer: Timer = null
@@ -96,6 +105,9 @@ func setup(player: Node2D, sword_pivot: Node2D, blade: Polygon2D, sword_shape: C
 	_sword_pivot = sword_pivot
 	_blade = blade
 	_sword_shape = sword_shape
+	# The Hitbox is the CollisionShape2D's parent (SwordPivot/Sword/CollisionShape2D) -- cache it so the
+	# talent melee bonus can be added onto its atk per swing without reaching up into the player for _sword.
+	_sword_hitbox = _sword_shape.get_parent() as Hitbox
 	_combo_reset_timer = combo_reset_timer
 	# Remember where the pivot rests so the punch (which slides it for the jab) can snap back.
 	_pivot_rest = _sword_pivot.position
@@ -236,10 +248,34 @@ func _punch() -> void:
 	await _player.get_tree().create_timer(_player.swing_duration).timeout
 
 
-## Enable the blade collision and show the silver rectangle for a swing.
+## Enable the blade collision and show the silver rectangle for a swing, and ADD the player's MELEE_DAMAGE
+## talent bonus onto the Sword Hitbox's atk for this swing (Part 2.2b). Every swing path (arc / thrust /
+## unarmed jab) routes through here, so the perk lands on all of them.
 func _begin_swing() -> void:
 	_sword_shape.disabled = false
 	_blade.visible = true
+	_apply_melee_bonus()
+
+
+## Add this swing's MELEE_DAMAGE talent bonus onto the Sword Hitbox's atk, read off the OWNING player's
+## CharacterSheet (never hardcoded). Guard-removes any stale add first (defensive: a prior cancelled swing)
+## so the bonus can never double-stack, then records + applies the fresh sum. Deterministic integer, no
+## Time/OS/RNG. The Hurtbox reads atk on overlap DURING the swing, so it sees the boosted value.
+func _apply_melee_bonus() -> void:
+	if _sword_hitbox == null:
+		return
+	_sword_hitbox.atk -= _melee_bonus_applied
+	_melee_bonus_applied = _player.character().melee_damage_bonus()
+	_sword_hitbox.atk += _melee_bonus_applied
+
+
+## Remove whatever MELEE_DAMAGE bonus this swing added, restoring the equipment-owned base atk. Called at
+## swing end AND on a mid-swing cancel (death), so the base is always restored regardless of how the swing
+## ended. Idempotent -- subtracts exactly what was added, then zeroes the tracker.
+func _clear_melee_bonus() -> void:
+	if _sword_hitbox != null:
+		_sword_hitbox.atk -= _melee_bonus_applied
+	_melee_bonus_applied = 0
 
 
 ## Disable the blade collision and hide the rectangle after a swing, and RESET the perspective/
@@ -247,6 +283,8 @@ func _begin_swing() -> void:
 ## back to rest) so no swing leaves a distorted blade or a displaced pivot. Guarded so a
 ## mid-swing death that freed these nodes cannot crash the retract.
 func _end_swing() -> void:
+	# Restore the equipment-owned base atk (remove this swing's talent bonus) before the visual reset.
+	_clear_melee_bonus()
 	if _fx_tween != null and _fx_tween.is_valid():
 		_fx_tween.kill()
 	if is_instance_valid(_sword_shape):
@@ -289,6 +327,8 @@ func cancel_swing() -> void:
 	# `await _swing_tween.finished` never resumes and would leave _attacking latched true. Clear it
 	# HERE so the combat state is always consistent after a cancel, regardless of the leaked coroutine.
 	_attacking = false
+	# A mid-swing cancel skips _end_swing, so restore the base atk here too (remove any applied bonus).
+	_clear_melee_bonus()
 	if is_instance_valid(_blade):
 		_blade.visible = false
 		_blade.scale = Vector2.ONE

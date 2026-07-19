@@ -18,12 +18,24 @@ const KEEN: StringName = &"keen_edge"        # cost 2, prereq [blade_focus], MEL
 const FORAGER: StringName = &"forager"       # root, cost 1, HARVEST_YIELD +1
 const HEAVY: StringName = &"heavy_hitter"    # root, cost 2, MELEE_DAMAGE +2
 
+## Part 2.2b scene legs: a controlled player proves the perk SUMS reach real gameplay (a swing's atk, a
+## harvest's drop count). Remote coord, clear of every other self-contained module (progression 52000,
+## xp-award 60000; this sits past them). Own holders, freed per leg.
+const HOME: Vector2 = Vector2(70000, 0)
+const PLAYER_SCENE: PackedScene = preload("res://player/player.tscn")
+const TREE_SCENE: PackedScene = preload("res://world/tree.tscn")
+const ROCK_SCENE: PackedScene = preload("res://world/rock.tscn")
+
 
 func run(ctx: TestContext) -> void:
 	print("[talents] --- talent tree unlock/prereq/spend (points gate + prereq gate + exact cost) ---")
 	_tree_tests(ctx)
 	_points_gate_tests(ctx)
 	_prereq_and_set_tests(ctx)
+	# Part 2.2b: the CharacterSheet spend/respec chokepoint, then the two perk effects on real gameplay.
+	_sheet_spend_and_respec_tests(ctx)
+	await _melee_damage_leg(ctx)
+	await _harvest_yield_leg(ctx)
 
 
 ## Tree-shape + fresh-state tests -- the authored nodes are present at the documented costs/prereqs and a
@@ -128,5 +140,264 @@ func _prereq_and_set_tests(ctx: TestContext) -> void:
 			and not t.is_unlocked(FORAGER) and not t.is_unlocked(HEAVY),
 		"the unlocked set is exactly {blade_focus, keen_edge} (forager + heavy_hitter stay locked)",
 		"the unlocked set was wrong after the prereq chain (count %d)" % t.unlocked_count())
+
+
+## Part 2.2b -- the CharacterSheet SPEND + RESPEC chokepoint (pure: a RefCounted CharacterSheet needs no
+## scene). Proves unlock_talent deducts the EXACT talent points from the owned Progression and refuses when
+## points are insufficient; that the perk SUMS reflect the unlocked set; and every respec rule -- exact
+## refund, bonus auto-revert, respec_points decrement, refusal for a prereq of an unlocked node / a
+## not-unlocked node / an exhausted allowance.
+func _sheet_spend_and_respec_tests(ctx: TestContext) -> void:
+	var sheet: CharacterSheet = CharacterSheet.new()
+
+	# Fresh: talents wired, full respec allowance, no perks (nothing unlocked).
+	ctx.check(sheet.talents != null and sheet.respec_points == CharacterSheet.RESPEC_START
+			and sheet.melee_damage_bonus() == 0 and sheet.harvest_yield_bonus() == 0,
+		"fresh CharacterSheet: talents wired, respec_points at the start allowance (%d), both perk sums 0" % CharacterSheet.RESPEC_START,
+		"fresh CharacterSheet talents/respec/perk-sums not at defaults")
+
+	# INSUFFICIENT POINTS: 0 talent points -> unlock_talent refused, deducts nothing, node stays locked.
+	ctx.check(not sheet.unlock_talent(BLADE) and sheet.progression.talent_points == 0
+			and not sheet.talents.is_unlocked(BLADE),
+		"unlock_talent refuses blade_focus with 0 talent points and deducts NOTHING (node stays locked)",
+		"unlock_talent wrongly spent/unlocked with insufficient points")
+
+	# Bank points, then unlock blade_focus (cost 1, MELEE_DAMAGE +1): deducts EXACTLY 1, bonus becomes +1.
+	sheet.progression.talent_points = 5
+	var ok_blade: bool = sheet.unlock_talent(BLADE)
+	ctx.check(ok_blade and sheet.progression.talent_points == 4 and sheet.melee_damage_bonus() == 1,
+		"unlock_talent(blade_focus) succeeds, deducts EXACTLY its cost (5 -> 4), melee bonus becomes +1",
+		"blade_focus unlock deducted the wrong points / wrong bonus (pts %d, bonus %d)" % [sheet.progression.talent_points, sheet.melee_damage_bonus()])
+
+	# Unlock keen_edge (cost 2, prereq blade_focus, MELEE_DAMAGE +1): deducts EXACTLY 2, bonus becomes +2.
+	var ok_keen: bool = sheet.unlock_talent(KEEN)
+	ctx.check(ok_keen and sheet.progression.talent_points == 2 and sheet.melee_damage_bonus() == 2,
+		"unlock_talent(keen_edge) deducts EXACTLY its cost (4 -> 2), melee bonus stacks to +2",
+		"keen_edge unlock deducted the wrong points / wrong bonus (pts %d, bonus %d)" % [sheet.progression.talent_points, sheet.melee_damage_bonus()])
+
+	# RESPEC REFUSED -- blade_focus is a prereq of the still-unlocked keen_edge: no refund, no respec spent,
+	# node stays unlocked (un-picking it would orphan keen_edge).
+	var pts_before: int = sheet.progression.talent_points     # 2
+	var respec_before: int = sheet.respec_points               # RESPEC_START
+	ctx.check(not sheet.respec(BLADE) and sheet.talents.is_unlocked(BLADE)
+			and sheet.progression.talent_points == pts_before and sheet.respec_points == respec_before,
+		"respec REFUSED for blade_focus while keen_edge (which depends on it) is unlocked -- no refund, no respec spent",
+		"respec of a prereq-of-unlocked node was not refused (pts %d, respec %d)" % [sheet.progression.talent_points, sheet.respec_points])
+
+	# RESPEC keen_edge (a leaf now): refunds EXACTLY its cost (2), reverts the bonus (+2 -> +1), spends one
+	# respec_point.
+	var ok_respec_keen: bool = sheet.respec(KEEN)
+	ctx.check(ok_respec_keen and not sheet.talents.is_unlocked(KEEN)
+			and sheet.progression.talent_points == pts_before + 2 and sheet.melee_damage_bonus() == 1
+			and sheet.respec_points == respec_before - 1,
+		"respec(keen_edge) refunds the EXACT cost (2 -> pts %d), reverts the melee bonus (+2 -> +1), respec_points %d -> %d" % [sheet.progression.talent_points, respec_before, sheet.respec_points],
+		"respec(keen_edge) refund/bonus/allowance wrong (pts %d, bonus %d, respec %d)" % [sheet.progression.talent_points, sheet.melee_damage_bonus(), sheet.respec_points])
+
+	# With keen_edge gone, blade_focus is a leaf -> respec now ALLOWED: refund 1, bonus reverts to 0.
+	var ok_respec_blade: bool = sheet.respec(BLADE)
+	ctx.check(ok_respec_blade and not sheet.talents.is_unlocked(BLADE) and sheet.melee_damage_bonus() == 0
+			and sheet.respec_points == respec_before - 2,
+		"respec(blade_focus) is now allowed (no dependents), refunds 1, melee bonus reverts to 0, respec_points %d -> %d" % [respec_before, sheet.respec_points],
+		"respec(blade_focus) not allowed once it was a leaf / wrong refund/bonus")
+
+	# RESPEC of a NOT-unlocked node is refused (forager was never unlocked): changes nothing.
+	var respec_now: int = sheet.respec_points
+	ctx.check(not sheet.respec(FORAGER) and sheet.respec_points == respec_now,
+		"respec REFUSED for forager (never unlocked) -- no respec_point spent",
+		"respec of a not-unlocked node was not refused")
+
+	# EXHAUSTED ALLOWANCE: a fresh sheet with respec_points forced to 0 refuses to respec even a valid leaf.
+	var s2: CharacterSheet = CharacterSheet.new()
+	s2.progression.talent_points = 10
+	s2.unlock_talent(BLADE)
+	s2.respec_points = 0
+	ctx.check(not s2.respec(BLADE) and s2.talents.is_unlocked(BLADE),
+		"respec REFUSED when respec_points is 0 (allowance exhausted) -- the leaf stays unlocked",
+		"respec was allowed with 0 respec_points")
+
+
+## Part 2.2b MELEE_DAMAGE -- a controlled player's swing deals measurably MORE atk after a MELEE talent is
+## unlocked. combat.gd adds the sheet's melee_damage_bonus onto the Sword Hitbox atk for the swing's
+## duration (read off the OWNING player), so the boost is observable mid-swing on player._sword.atk and
+## reverts between swings. The default equipped tool is the sword; its base atk is the between-swings value.
+func _melee_damage_leg(ctx: TestContext) -> void:
+	var holder: Node2D = Node2D.new()
+	ctx.tree.root.add_child(holder)
+	var player: Player = PLAYER_SCENE.instantiate() as Player
+	player.pickup_radius = 0.0  # inert like the other remote players; nothing to grab out here
+	holder.add_child(player)
+	player.global_position = HOME
+	await ctx.settle_idle()
+	await ctx.tree.physics_frame
+
+	# Between swings, no bonus is applied: player._sword.atk is the equipment-owned base, and the sheet
+	# reports a 0 melee bonus with nothing unlocked.
+	var base_atk: int = player._sword.atk
+	ctx.check(player.character().melee_damage_bonus() == 0,
+		"a fresh player's melee_damage_bonus is 0 (no talents unlocked)",
+		"fresh player melee bonus not 0 (got %d)" % player.character().melee_damage_bonus())
+
+	# A swing with NO talent leaves the atk at base (attack() runs to its first await synchronously, so
+	# _begin_swing has already applied the -- here zero -- bonus by the time control returns to us).
+	player._combo_index = 0
+	player.attack()  # started, NOT awaited -- read the boosted atk mid-swing, then drain to completion
+	var swing_atk_no_talent: int = player._sword.atk
+	ctx.check(swing_atk_no_talent == base_atk,
+		"a swing with no MELEE talent keeps the base atk (%d) -- no bonus added" % base_atk,
+		"an un-talented swing changed the atk (base %d, swing %d)" % [base_atk, swing_atk_no_talent])
+	await _drain_swing(ctx, player)
+
+	# Bank points and unlock blade_focus (MELEE +1) + heavy_hitter (MELEE +2) -> a +3 melee bonus.
+	player.character().progression.talent_points = 10
+	var ok1: bool = player.character().unlock_talent(BLADE)
+	var ok2: bool = player.character().unlock_talent(HEAVY)
+	ctx.check(ok1 and ok2 and player.character().melee_damage_bonus() == 3,
+		"unlocking blade_focus (+1) and heavy_hitter (+2) sums to a +3 melee bonus",
+		"melee bonus after two MELEE talents wrong (got %d)" % player.character().melee_damage_bonus())
+
+	# Now a swing deals measurably MORE: the Sword Hitbox atk is base + 3 for the swing's duration -- the
+	# EXACT value the Hurtbox reads on overlap, so the strike lands 3 more HP damage.
+	player._combo_index = 0
+	player.attack()  # started, NOT awaited
+	var swing_atk_talent: int = player._sword.atk
+	ctx.check(swing_atk_talent == base_atk + 3,
+		"a swing WITH the MELEE talents deals measurably more: atk %d -> %d (+3 bonus, the delta the Hurtbox reads)" % [base_atk, swing_atk_talent],
+		"MELEE talent did not boost the swing atk (base %d, swing %d, expected %d)" % [base_atk, swing_atk_talent, base_atk + 3])
+	await _drain_swing(ctx, player)
+
+	# The bonus is swing-scoped: once the swing ends the equipment-owned base atk is restored exactly.
+	ctx.check(player._sword.atk == base_atk,
+		"the MELEE bonus is swing-scoped: atk reverts to the base (%d) between swings" % base_atk,
+		"the MELEE bonus leaked past the swing (atk %d, base %d)" % [player._sword.atk, base_atk])
+
+	holder.queue_free()
+	await ctx.tree.physics_frame
+
+
+## Part 2.2b HARVEST_YIELD -- a fell/mine yields measurably MORE for a player with the forager talent. The
+## yield path resolves the harvester through the "player" group (same as the harvest-XP hook), so this leg
+## takes over that group with its OWN controlled player, measures the baseline drop counts, unlocks forager
+## (+1), and measures the boosted counts. The incidental shared main player is displaced from the group for
+## the leg and restored at teardown, so nothing else is polluted.
+func _harvest_yield_leg(ctx: TestContext) -> void:
+	var holder: Node2D = Node2D.new()
+	ctx.tree.root.add_child(holder)
+	var player: Player = PLAYER_SCENE.instantiate() as Player
+	player.pickup_radius = 0.0
+	holder.add_child(player)
+	player.global_position = HOME + Vector2(0, 5000)
+	await ctx.settle_idle()
+	await ctx.tree.physics_frame
+
+	# Take over the "player" group so the yield path resolves OUR controlled player, not the incidental
+	# shared main player. Displaced members are restored at teardown.
+	var displaced: Array = []
+	for other in ctx.tree.get_nodes_in_group("player"):
+		if other != player:
+			other.remove_from_group("player")
+			displaced.append(other)
+
+	# --- BASELINE (no forager) --------------------------------------------------
+	# Tree fell -> exactly yield_amount wood. Read the authored base off a throwaway instance, freed
+	# immediately so it never lingers as an orphan node (the streaming zero-orphan baseline is strict).
+	var probe: StaticBody2D = TREE_SCENE.instantiate() as StaticBody2D
+	var tree_amt: int = int(probe.get("yield_amount"))  # authored base (3)
+	probe.free()
+	var base_wood: int = await _fell_and_count(ctx, holder, HOME + Vector2(200, 5000))
+	ctx.check(base_wood == tree_amt,
+		"BASELINE (no forager): a felled tree yields exactly yield_amount wood (%d)" % tree_amt,
+		"baseline tree-fell yield wrong (got %d, expected %d)" % [base_wood, tree_amt])
+	# Rock mined once -> exactly 1 stone.
+	var base_stone: int = await _mine_once_and_count(ctx, holder, HOME + Vector2(400, 5000))
+	ctx.check(base_stone == 1,
+		"BASELINE (no forager): one affecting mine yields exactly 1 stone",
+		"baseline rock per-mine yield wrong (got %d, expected 1)" % base_stone)
+
+	# --- UNLOCK FORAGER (HARVEST_YIELD +1) --------------------------------------
+	player.character().progression.talent_points = 5
+	var okf: bool = player.character().unlock_talent(FORAGER)
+	ctx.check(okf and player.character().harvest_yield_bonus() == 1,
+		"unlock_talent(forager) succeeds and the harvest_yield bonus becomes +1",
+		"forager unlock / harvest bonus wrong (ok %s, bonus %d)" % [str(okf), player.character().harvest_yield_bonus()])
+
+	# --- BOOSTED (forager unlocked) ---------------------------------------------
+	# Tree fell -> yield_amount + 1 wood (the delta).
+	var boosted_wood: int = await _fell_and_count(ctx, holder, HOME + Vector2(600, 5000))
+	ctx.check(boosted_wood == tree_amt + 1,
+		"forager makes a felled tree yield measurably MORE: %d -> %d wood (+1 delta)" % [tree_amt, boosted_wood],
+		"forager tree-fell delta wrong (got %d, expected %d)" % [boosted_wood, tree_amt + 1])
+	# Rock mined once -> 2 stone (the delta).
+	var boosted_stone: int = await _mine_once_and_count(ctx, holder, HOME + Vector2(800, 5000))
+	ctx.check(boosted_stone == 2,
+		"forager makes one affecting mine yield measurably MORE: 1 -> 2 stone (+1 delta)",
+		"forager rock per-mine delta wrong (got %d, expected 2)" % boosted_stone)
+
+	# --- Teardown: restore the displaced group members, free the holder ----------
+	for other in displaced:
+		if is_instance_valid(other):
+			other.add_to_group("player")
+	holder.queue_free()
+	await ctx.tree.physics_frame
+
+
+## Fell a fresh tree under `parent` at `at`, wait (watchdog) for its deferred fall+burst, and return the
+## number of Wood drops it spawned. The tree bursts its wood via a tween callback only AFTER it topples, so
+## a watchdog polls the drop count rather than assuming a same-frame spawn (mirrors test_harvest).
+func _fell_and_count(ctx: TestContext, parent: Node, at: Vector2) -> int:
+	var sub: Node2D = Node2D.new()
+	parent.add_child(sub)
+	var tree_node: StaticBody2D = TREE_SCENE.instantiate() as StaticBody2D
+	sub.add_child(tree_node)
+	tree_node.global_position = at
+	await ctx.tree.physics_frame
+	var expect: int = int(tree_node.get("yield_amount")) + player_bonus_hint(ctx)
+	var mat: DurabilityComponent = tree_node.get_node("Material") as DurabilityComponent
+	mat.wear(mat.current_durability)  # integrity -> 0 -> topple -> burst
+	var watchdog: SceneTreeTimer = ctx.tree.create_timer(3.0)
+	while _count_drops(sub) < expect and watchdog.time_left > 0.0:
+		await ctx.tree.physics_frame
+	return _count_drops(sub)
+
+
+## Mine a fresh rock under `parent` at `at` exactly once (one affecting hit) and return the Stone drop count
+## that single chip spawned. Rock integrity is > 1, so it survives the single mine (not freed).
+func _mine_once_and_count(ctx: TestContext, parent: Node, at: Vector2) -> int:
+	var sub: Node2D = Node2D.new()
+	parent.add_child(sub)
+	var rock_node: Rock = ROCK_SCENE.instantiate() as Rock
+	sub.add_child(rock_node)
+	rock_node.global_position = at
+	await ctx.tree.physics_frame
+	var mat: DurabilityComponent = rock_node.get_node("Material") as DurabilityComponent
+	mat.wear(1)  # one affecting mine -> _on_integrity_changed chips its stone(s)
+	await ctx.tree.physics_frame
+	await ctx.tree.physics_frame  # settle the deferred drop add_child
+	return _count_drops(sub)
+
+
+## The group-resolved harvester's HARVEST_YIELD bonus, so _fell_and_count's watchdog knows how many drops to
+## wait for (the SAME bonus the yield path reads). Resolves the "player" group exactly like the game code.
+func player_bonus_hint(ctx: TestContext) -> int:
+	var p: Player = ctx.tree.get_first_node_in_group("player") as Player
+	return p.character().harvest_yield_bonus() if p != null else 0
+
+
+## The live Drop instances directly under a node (empty if none). Mirrors test_harvest._drops.
+func _count_drops(parent: Node) -> int:
+	var n: int = 0
+	for child in parent.get_children():
+		if child is Drop:
+			n += 1
+	return n
+
+
+## Drain any in-flight swing to completion (watchdog), so a started-but-not-awaited attack() finishes and
+## its swing-scoped state (the MELEE bonus) is cleared before the next assertion. Mirrors the drain loops
+## in test_combat / test_context.
+func _drain_swing(ctx: TestContext, player: Player) -> void:
+	for _i in range(60):
+		if not player._attacking:
+			return
+		await ctx.tree.physics_frame
 
 # Verified against: Godot 4.7.1 (2026-07-19)

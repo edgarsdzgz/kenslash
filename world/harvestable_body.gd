@@ -101,4 +101,18 @@ func _award_harvest_xp(amount: int) -> void:
 	if p != null:
 		p.award_xp(amount)
 
+
+## The local player's HARVEST_YIELD talent bonus for a harvest on this body (plan-epic1-parts.md Part 2.2b):
+## the EXTRA drop count a fell/mine adds. Resolved through the SAME "player" group as _award_harvest_xp -- so
+## the body holds no hard path to the player -- and read off its portable CharacterSheet. A null player (a
+## headless harvest with no player in the tree) is a guarded 0. Deterministic integer (CharacterSheet sums
+## the unlocked talents' magnitudes), no Time/OS/RNG. The Tree adds this to its fell burst, the Rock to its
+## per-mine chip -- so a felled tree / mined rock yields MORE for a player with the forager talent. MP: this
+## is the LOCAL player; per-harvester attribution is an Epic 8 seam, exactly like the XP award.
+func _harvest_yield_bonus() -> int:
+	var p: Player = get_tree().get_first_node_in_group("player") as Player
+	if p != null:
+		return p.character().harvest_yield_bonus()
+	return 0
+
 # Verified against: Godot 4.7.1 (2026-07-19)

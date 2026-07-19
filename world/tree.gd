@@ -92,8 +92,11 @@ func _spawn_yield() -> void:
 	if yield_item == null:
 		return
 	var origin: Vector2 = global_position
-	var n: int = maxi(yield_amount, 1)
-	for i in range(yield_amount):
+	# Forager talent (HARVEST_YIELD, Part 2.2b): a felled tree bursts MORE wood for a player with the perk.
+	# The bonus is resolved through the "player" group (the SAME way the harvest-XP hook resolves it) and
+	# added to the base yield_amount; 0 for no/plain player, so the un-talented burst is byte-identical.
+	var n: int = maxi(yield_amount + _harvest_yield_bonus(), 1)
+	for i in range(n):
 		var angle: float = TAU * float(i) / float(n)
 		var offset: Vector2 = Vector2(cos(angle), sin(angle)) * _YIELD_RING_RADIUS
 		_spawn_drop(yield_item, origin + offset)

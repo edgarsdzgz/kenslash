@@ -41,8 +41,13 @@ func _on_integrity_changed(current: int, max_val: int) -> void:
 	print("[rock] integrity ", current, "/", max_val)
 	# Drop ONE Stone per AFFECTING mine: durability_changed fires once per hit that reduces integrity
 	# (the mine-to-0 one INCLUDED), so each pick chips its stone here -- NOT in _on_broke (that would
-	# double the last stone). A Band-C whiff never reduces integrity, so no stone drops.
-	_spawn_drop(yield_item, global_position + _YIELD_OFFSET)
+	# double the last stone). A Band-C whiff never reduces integrity, so no stone drops. Forager talent
+	# (HARVEST_YIELD, Part 2.2b): a player with the perk chips EXTRA stone per mine -- the group-resolved
+	# bonus (same resolution as the harvest-XP hook) is added to the base 1; 0 for no/plain player, so the
+	# un-talented per-mine chip is byte-identical to before.
+	var count: int = maxi(1 + _harvest_yield_bonus(), 1)
+	for _i in range(count):
+		_spawn_drop(yield_item, global_position + _YIELD_OFFSET)
 	# Harvest XP PER affecting mine (Part 1.2): fires alongside each stone chip. This hook only runs on an
 	# affecting hit, so a Band-C whiff -- which never reaches here -- correctly grants no XP either.
 	_award_harvest_xp(XP_PER_MINE)

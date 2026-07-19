@@ -114,4 +114,29 @@ func unlock(id: StringName) -> int:
 	_unlocked[id] = true
 	return t.cost
 
+
+## Whether `id` is listed as a prereq of ANY currently-unlocked node -- i.e. relocking `id` would strand a
+## still-unlocked descendant with an unmet prereq. The RESPEC gate the caller (CharacterSheet.respec) checks
+## so an un-pick can never orphan the tree. Pure query over the unlocked set + the definition prereqs.
+func is_prereq_of_unlocked(id: StringName) -> bool:
+	for other: StringName in _unlocked:
+		var t: TalentData = _by_id.get(other, null)
+		if t != null and id in t.prereqs:
+			return true
+	return false
+
+
+## The inverse of unlock(): REMOVE `id` from the unlocked set and RETURN its cost (the amount the caller
+## must REFUND to Progression.talent_points). GUARDED no-op -- returns 0 and changes NOTHING if `id` is not
+## currently unlocked. Deliberately does NOT check prereq-orphaning or the respec allowance: those are the
+## respec RULES, enforced by the caller (CharacterSheet.respec) exactly as unlock() leaves the point
+## affordability to the caller. Pairing unlock()<->relock() keeps the unlocked set and the reported costs
+## symmetric, so a respec exactly reverses the spend it undoes.
+func relock(id: StringName) -> int:
+	if not _unlocked.has(id):
+		return 0
+	var cost: int = _by_id[id].cost
+	_unlocked.erase(id)
+	return cost
+
 # Verified against: Godot 4.7.1 (2026-07-19)
