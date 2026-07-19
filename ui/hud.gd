@@ -20,6 +20,8 @@ extends CanvasLayer
 const HIGHLIGHT_COLOR: Color = Color(0.95, 0.85, 0.35, 0.95)
 const SLOT_COLOR: Color = Color(0.18, 0.18, 0.22, 0.9)
 const SLOT_SIZE: Vector2 = Vector2(34, 34)
+## Fraction of the (square) slot the fitted icon spans (its longer bbox side), then centered.
+const ICON_FIT: float = 0.75
 ## Item-name selection popup (Minecraft-style): how long the newly-selected item's name is
 ## held at full opacity, then how long it takes to fade to transparent. Time-based via a Tween
 ## (never Time/OS wall-clock) so it advances identically headless.
@@ -43,6 +45,10 @@ var _slot_labels: Array[Label] = []
 ## count when > 1 (blank for a single item or an empty slot). Kept separate from the glyph
 ## label so slot_glyph_at() stays the pure glyph (S/A/P/W) the existing tests assert.
 var _slot_counts: Array[Label] = []
+## Parallel to _slot_labels: a filled Polygon2D per slot drawing the item's ICON silhouette
+## (icon_shape, else a tool's blade_shape), fitted + centered. When it shows, the glyph Label is
+## blanked; an empty/shapeless slot hides it and falls back to the letter glyph.
+var _slot_icons: Array[Polygon2D] = []
 
 @onready var _health_label: Label = $Backdrop/Column/HealthLabel
 @onready var _health_bar: ProgressBar = $Backdrop/Column/HealthBar
@@ -189,7 +195,18 @@ func _refresh_hotbar() -> void:
 	for i in range(_slot_panels.size()):
 		var item: ItemData = inv.item_at(i)
 		var count: int = inv.count_at(i)
-		_slot_labels[i].text = _slot_glyph(item)
+		# Prefer the item's icon SILHOUETTE; blank the glyph label when one shows so the two
+		# never render on top of each other. No shape -> hide the icon, keep the letter glyph.
+		var icon_src: PackedVector2Array = _icon_shape_for(item)
+		if not icon_src.is_empty():
+			_slot_icons[i].polygon = _fit_polygon(icon_src)
+			_slot_icons[i].color = _icon_color(item)
+			_slot_icons[i].visible = true
+			_slot_labels[i].text = ""
+		else:
+			_slot_icons[i].polygon = PackedVector2Array()
+			_slot_icons[i].visible = false
+			_slot_labels[i].text = _slot_glyph(item)
 		# Show the count only for a real stack (> 1); a single item or empty slot is blank.
 		_slot_counts[i].text = str(count) if count > 1 else ""
 		_slot_panels[i].color = HIGHLIGHT_COLOR if i == equipped else SLOT_COLOR
@@ -203,6 +220,7 @@ func _build_hotbar() -> void:
 	_slot_panels.clear()
 	_slot_labels.clear()
 	_slot_counts.clear()
+	_slot_icons.clear()
 	var count: int = _player.inventory.hotbar_size()
 	for _i in range(count):
 		var panel: ColorRect = ColorRect.new()
@@ -213,8 +231,15 @@ func _build_hotbar() -> void:
 		label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
 		label.set_anchors_preset(Control.PRESET_FULL_RECT)
 		panel.add_child(label)
-		# A second small label pinned bottom-right for a stack's count (blank unless > 1).
-		# Separate widget so the glyph label stays the pure glyph the tests read.
+		# The item ICON (a filled silhouette). A Node2D child of the ColorRect renders at the
+		# slot's top-left origin, so it is nudged to the slot CENTER (the polygon is pre-fitted
+		# around its own origin). Hidden until _refresh_hotbar sets polygon/color/visibility.
+		var icon: Polygon2D = Polygon2D.new()
+		icon.position = SLOT_SIZE * 0.5
+		icon.visible = false
+		panel.add_child(icon)
+		# A second small label pinned bottom-right for a stack's count (blank unless > 1); added
+		# LAST so the count badge draws over the icon. Separate widget from the glyph label.
 		var count_label: Label = Label.new()
 		count_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
 		count_label.vertical_alignment = VERTICAL_ALIGNMENT_BOTTOM
@@ -223,6 +248,7 @@ func _build_hotbar() -> void:
 		_hotbar.add_child(panel)
 		_slot_panels.append(panel)
 		_slot_labels.append(label)
+		_slot_icons.append(icon)
 		_slot_counts.append(count_label)
 
 
@@ -234,6 +260,53 @@ func _slot_glyph(item: ItemData) -> String:
 	if item.glyph != "":
 		return item.glyph
 	return item.display_name.substr(0, 1)
+
+
+## The icon SILHOUETTE to draw for a slot's item, in the item's own local space. Lookup rule:
+## the item's own icon_shape if it set one; else, if it is a ToolData, REUSE its blade_shape
+## (so the sword/axe/pickaxe hotbar icons come straight from the swing silhouette -- no
+## duplicated shape on the tool .tres); else empty -> the caller falls back to the letter glyph.
+func _icon_shape_for(item: ItemData) -> PackedVector2Array:
+	if item == null:
+		return PackedVector2Array()
+	if not item.icon_shape.is_empty():
+		return item.icon_shape
+	if item is ToolData:
+		return (item as ToolData).blade_shape
+	return PackedVector2Array()
+
+
+## Fill colour for a slot icon: a tool paints in its blade_color (matching the equipped-blade
+## tint), any other item in its own drop `color`.
+func _icon_color(item: ItemData) -> Color:
+	if item is ToolData:
+		return (item as ToolData).blade_color
+	return item.color
+
+
+## Normalize an icon outline to fit the slot: measure its bounding box, uniformly scale so the
+## LONGER side spans ICON_FIT * SLOT_SIZE, and recenter the box on the origin (the Polygon2D is
+## positioned at the slot centre). Point COUNT is preserved, so a test can match it against the
+## source shape's size. A degenerate (zero-area) shape is returned unchanged.
+func _fit_polygon(shape: PackedVector2Array) -> PackedVector2Array:
+	var min_x: float = INF
+	var min_y: float = INF
+	var max_x: float = -INF
+	var max_y: float = -INF
+	for p in shape:
+		min_x = minf(min_x, p.x)
+		max_x = maxf(max_x, p.x)
+		min_y = minf(min_y, p.y)
+		max_y = maxf(max_y, p.y)
+	var span: float = maxf(max_x - min_x, max_y - min_y)
+	if span <= 0.0:
+		return shape
+	var scale: float = (SLOT_SIZE.x * ICON_FIT) / span
+	var center: Vector2 = Vector2((min_x + max_x) * 0.5, (min_y + max_y) * 0.5)
+	var out: PackedVector2Array = PackedVector2Array()
+	for p in shape:
+		out.append((p - center) * scale)
+	return out
 
 
 # --- Read-only presentation queries (for the headless HUD test) -----------------------
@@ -271,6 +344,32 @@ func slot_glyph_at(i: int) -> String:
 	return _slot_labels[i].text
 
 
+## Vertex count of the icon polygon SHOWN in slot `i` (0 when no icon: empty/shapeless/range). The
+## fit transform preserves point count, so a test matches it against icon_shape / blade_shape size.
+func slot_icon_point_count(i: int) -> int:
+	if i < 0 or i >= _slot_icons.size():
+		return 0
+	if not _slot_icons[i].visible:
+		return 0
+	return _slot_icons[i].polygon.size()
+
+
+## Whether slot `i` is currently drawing an item icon (false for an empty/shapeless slot or out
+## of range).
+func slot_icon_visible(i: int) -> bool:
+	if i < 0 or i >= _slot_icons.size():
+		return false
+	return _slot_icons[i].visible
+
+
+## Fill colour of slot `i`'s icon polygon -- a tool's blade_color, a resource's own color. Lets
+## the HUD test prove the tool-vs-resource tint branch. Transparent black when out of range.
+func slot_icon_color(i: int) -> Color:
+	if i < 0 or i >= _slot_icons.size():
+		return Color(0, 0, 0, 0)
+	return _slot_icons[i].color
+
+
 ## The count currently SHOWN in slot `i`'s count label (0 when blank -- a single item or an
 ## empty slot -- or out of range). Reads the rendered text so it mirrors exactly what a
 ## player sees, not the raw inventory count.
@@ -297,4 +396,4 @@ func highlighted_count() -> int:
 			n += 1
 	return n
 
-# Verified against: Godot 4.7.1 (2026-07-18)
+# Verified against: Godot 4.7.1 (2026-07-19)

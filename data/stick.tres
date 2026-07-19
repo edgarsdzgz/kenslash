@@ -8,3 +8,4 @@ display_name = "Stick"
 max_stack = 255
 glyph = "S"
 color = Color(0.55, 0.4, 0.2, 1)
+icon_shape = PackedVector2Array(-10, 8, -8, 10, 10, -8, 8, -10)

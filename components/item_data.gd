@@ -26,5 +26,13 @@ extends Resource
 ## so a drop reads as a shrunk version of its resource. The default gray covers items that
 ## do not (yet) drop as world entities (tools).
 @export var color: Color = Color(0.6, 0.6, 0.6, 1)
+## Hotbar-ICON silhouette: this item's outline in its OWN local space (any scale -- the HUD
+## measures its bounding box and normalizes it to fit the slot), rendered FILLED in `color`
+## (a tool uses its blade_color). A small readable shape (a plank for Wood, a hexagon for
+## Stone, a thin stick, a fiber tuft) that replaces the single-letter glyph in the slot.
+## EMPTY -> the HUD falls back: a ToolData reuses its own `blade_shape` as the icon, and any
+## still-shapeless item shows the letter glyph as before. Keep it a simple, non-self-
+## intersecting polygon. Presentation only -- never read by gameplay.
+@export var icon_shape: PackedVector2Array = PackedVector2Array()
 
-# Verified against: Godot 4.7.1 (2026-07-18)
+# Verified against: Godot 4.7.1 (2026-07-19)

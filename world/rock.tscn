@@ -8,7 +8,7 @@
 size = Vector2(36, 36)
 
 [sub_resource type="RectangleShape2D" id="RectangleShape2D_hurt"]
-size = Vector2(40, 40)
+size = Vector2(40, 64)
 
 [node name="Rock" type="StaticBody2D"]
 collision_layer = 1
@@ -33,6 +33,7 @@ wear_taken = 2
 required_harvest = 2
 
 [node name="CollisionShape2D" type="CollisionShape2D" parent="Hurtbox"]
+position = Vector2(0, -16)
 shape = SubResource("RectangleShape2D_hurt")
 
 [node name="InvincibilityTimer" type="Timer" parent="Hurtbox"]

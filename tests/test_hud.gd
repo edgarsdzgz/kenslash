@@ -92,21 +92,37 @@ func run(ctx: TestContext) -> void:
 	ctx.check(hud.hotbar_slot_count() == player.inventory.hotbar_size() and hud.hotbar_slot_count() == 10,
 		"HUD hotbar has hotbar_size() slot widgets (" + str(hud.hotbar_slot_count()) + " == 10)",
 		"HUD hotbar slot count wrong (" + str(hud.hotbar_slot_count()) + ")")
-	ctx.check(hud.slot_glyph_at(0) == "S" and hud.slot_glyph_at(1) == "A" and hud.slot_glyph_at(2) == "P",
-		"HUD hotbar tool slots show glyphs S/A/P",
-		"HUD hotbar tool glyphs wrong (" + hud.slot_glyph_at(0) + hud.slot_glyph_at(1) + hud.slot_glyph_at(2) + ")")
-	ctx.check(hud.slot_glyph_at(3) == "" and hud.slot_glyph_at(4) == "" and hud.slot_glyph_at(9) == "",
-		"HUD empty hotbar slots (3-9) are blank",
-		"HUD empty hotbar slots not blank")
+	# Change 2: tool slots now render the tool's BLADE SILHOUETTE as the hotbar icon (reusing
+	# blade_shape via the HUD's icon lookup), not the S/A/P letter. Each icon polygon has the
+	# same point count as its tool's blade_shape, and the glyph label is blanked while an icon shows.
+	ctx.check(hud.slot_icon_visible(0) and hud.slot_icon_visible(1) and hud.slot_icon_visible(2)
+			and hud.slot_icon_point_count(0) == Player.SWORD_DATA.blade_shape.size()
+			and hud.slot_icon_point_count(1) == Player.AXE_DATA.blade_shape.size()
+			and hud.slot_icon_point_count(2) == Player.PICKAXE_DATA.blade_shape.size()
+			and hud.slot_glyph_at(0) == "" and hud.slot_glyph_at(1) == "" and hud.slot_glyph_at(2) == "",
+		"HUD tool slots show the tool blade silhouettes as icons (sword/axe/pickaxe blade_shape point counts, glyph blanked)",
+		"HUD tool slot icons wrong (pts " + str(hud.slot_icon_point_count(0)) + "/" + str(hud.slot_icon_point_count(1)) + "/" + str(hud.slot_icon_point_count(2)) + ")")
+	ctx.check(hud.slot_glyph_at(3) == "" and hud.slot_glyph_at(4) == "" and hud.slot_glyph_at(9) == ""
+			and not hud.slot_icon_visible(3) and not hud.slot_icon_visible(4) and not hud.slot_icon_visible(9)
+			and hud.slot_icon_point_count(3) == 0,
+		"HUD empty hotbar slots (3-9) show neither glyph nor icon",
+		"HUD empty hotbar slots not blank (glyph or icon present)")
 
-	# --- E1b: a resource stack shows its glyph + count; a tool slot shows no count -----
-	# Drop 5 Wood into empty slot 3; the per-frame pass renders glyph "W" and count "5",
-	# while a tool slot (count 1) shows a blank count.
-	player.inventory.add_item(load("res://data/wood.tres"), 5)
+	# --- E1b: a resource stack shows its ICON + count; a tool slot shows no count -----
+	# Drop 5 Wood into empty slot 3; the per-frame pass renders Wood's icon_shape silhouette
+	# (its own outline, not a blade) and count "5", while a tool slot (count 1) shows a blank count.
+	var wood_item: ItemData = load("res://data/wood.tres")
+	player.inventory.add_item(wood_item, 5)
 	await ctx.settle_idle()
-	ctx.check(hud.slot_glyph_at(3) == "W" and hud.slot_count_at(3) == 5,
-		"HUD resource slot shows glyph W and count 5 (" + hud.slot_glyph_at(3) + "/" + str(hud.slot_count_at(3)) + ")",
-		"HUD resource slot glyph/count wrong (" + hud.slot_glyph_at(3) + "/" + str(hud.slot_count_at(3)) + ")")
+	ctx.check(hud.slot_icon_visible(3) and wood_item.icon_shape.size() > 0
+			and hud.slot_icon_point_count(3) == wood_item.icon_shape.size()
+			and hud.slot_glyph_at(3) == "" and hud.slot_count_at(3) == 5,
+		"HUD resource slot shows Wood's icon silhouette (" + str(hud.slot_icon_point_count(3)) + " pts, glyph blanked) and count 5",
+		"HUD resource slot icon/count wrong (icon " + str(hud.slot_icon_point_count(3)) + "/" + str(wood_item.icon_shape.size()) + " glyph \"" + hud.slot_glyph_at(3) + "\" count " + str(hud.slot_count_at(3)) + ")")
+	# Icons paint in the right fill: a tool in its blade_color, a resource in its own item color.
+	ctx.check(hud.slot_icon_color(0) == Player.SWORD_DATA.blade_color and hud.slot_icon_color(3) == wood_item.color,
+		"HUD icon fill: tool slot uses blade_color, resource slot uses the item color",
+		"HUD icon fill colors wrong (tool " + str(hud.slot_icon_color(0)) + " wood " + str(hud.slot_icon_color(3)) + ")")
 	ctx.check(hud.slot_count_at(0) == 0,
 		"HUD tool slot shows no count (count 1 is not rendered)",
 		"HUD tool slot wrongly showed a count (" + str(hud.slot_count_at(0)) + ")")
@@ -157,4 +173,4 @@ func run(ctx: TestContext) -> void:
 	sw.queue_free()
 	await ctx.settle_idle()
 
-# Verified against: Godot 4.7.1 (2026-07-18)
+# Verified against: Godot 4.7.1 (2026-07-19)

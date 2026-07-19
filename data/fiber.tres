@@ -8,3 +8,4 @@ display_name = "Fiber"
 max_stack = 255
 glyph = "F"
 color = Color(0.75, 0.8, 0.55, 1)
+icon_shape = PackedVector2Array(0, -10, 4, 2, 9, 9, 0, 5, -9, 9, -4, 2)
