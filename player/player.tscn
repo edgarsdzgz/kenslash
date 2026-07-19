@@ -1,10 +1,11 @@
-[gd_scene load_steps=8 format=4]
+[gd_scene load_steps=9 format=4]
 
 [ext_resource type="Script" path="res://player/player.gd" id="1_player"]
 [ext_resource type="Script" path="res://components/hitbox.gd" id="2_hitbox"]
 [ext_resource type="PackedScene" path="res://components/health_component.tscn" id="3_health"]
 [ext_resource type="Script" path="res://components/hurtbox.gd" id="4_hurtbox"]
 [ext_resource type="Script" path="res://components/durability_component.gd" id="5_dura"]
+[ext_resource type="Script" path="res://components/ground_shadow.gd" id="6_shadow"]
 
 [sub_resource type="RectangleShape2D" id="RectangleShape2D_body"]
 size = Vector2(20, 20)
@@ -19,6 +20,10 @@ size = Vector2(20, 40)
 collision_layer = 2
 collision_mask = 5
 script = ExtResource("1_player")
+
+[node name="GroundShadow" type="Polygon2D" parent="."]
+position = Vector2(0, 2)
+script = ExtResource("6_shadow")
 
 [node name="Body" type="Polygon2D" parent="."]
 color = Color(0.35, 0.7, 1, 1)

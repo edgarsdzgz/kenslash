@@ -1,10 +1,11 @@
-[gd_scene load_steps=7 format=4]
+[gd_scene load_steps=8 format=4]
 
 [ext_resource type="Script" path="res://world/streaming_world.gd" id="1_sw"]
 [ext_resource type="Script" path="res://world/chunk_manager.gd" id="2_mgr"]
 [ext_resource type="PackedScene" path="res://player/player.tscn" id="3_player"]
 [ext_resource type="PackedScene" path="res://ui/hud.tscn" id="4_hud"]
 [ext_resource type="Shader" path="res://world/meadow_ground.gdshader" id="5_ground"]
+[ext_resource type="PackedScene" path="res://world/region_trigger.tscn" id="6_region"]
 
 [sub_resource type="ShaderMaterial" id="ShaderMaterial_ground"]
 shader = ExtResource("5_ground")
@@ -47,3 +48,6 @@ position = Vector2(0, 0)
 [node name="Camera2D" type="Camera2D" parent="Player"]
 
 [node name="HUD" parent="." instance=ExtResource("4_hud")]
+
+[node name="RegionTrigger" parent="." instance=ExtResource("6_region")]
+position = Vector2(5000, 0)

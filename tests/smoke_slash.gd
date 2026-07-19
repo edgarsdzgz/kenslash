@@ -103,6 +103,9 @@ func _run() -> void:
 	# --- Meadow ground (self-contained: instantiates streaming_world.tscn) --------
 	await TestGround.new().run(ctx)
 
+	# --- Elevation + inside/outside FOUNDATION (self-contained: own player + trigger, remote) ---
+	await TestElevation.new().run(ctx)
+
 	# --- Encumbrance E-weight (self-contained: own two players driven at remote coords) ---
 	await TestEncumbrance.new().run(ctx)
 
@@ -140,7 +143,7 @@ func _run() -> void:
 	await TestSpitter.new().run(ctx)
 
 	if ctx.all_pass:
-		print("[PASS] smoke_slash: combat + combo + death + bodies + input seam + durability + streaming + playable + hud + encumbrance + harvest + pickup + lifetime + drop-persist + forage + pebble + controls + tank + swordsman + charger + spitter -- all passed")
+		print("[PASS] smoke_slash: combat + combo + death + bodies + input seam + durability + streaming + playable + hud + encumbrance + harvest + pickup + lifetime + drop-persist + forage + pebble + controls + elevation + tank + swordsman + charger + spitter -- all passed")
 		quit(0)
 	else:
 		_fail("one or more assertions failed")

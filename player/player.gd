@@ -95,6 +95,8 @@ var _combat: Combat = null  ## Sword-combo subsystem (components/combat.gd): own
 var _avatar: Avatar = null  ## Four-facing look (components/avatar.gd): RefCounted like the others, made in _ready; drives Body shape/flip + Face per facing.
 var _locomotion: Locomotion = null  ## Movement + sprint + dodge subsystem (components/locomotion.gd): owns _move_velocity + the dodge dash, made in _ready. RefCounted like the others.
 var _stamina: Stamina = null  ## Stamina pool (components/stamina.gd): sprint drains it, a dodge spends it; the HUD reads it via the facade below. RefCounted, made in _ready.
+var _elevation: Elevation = null  ## Elevation foundation (components/elevation.gd): float z + body draw-offset + ground-shadow pin + depth key. RefCounted like the others, made in _ready.
+var _region: Region = null  ## Inside/outside region flag (components/region.gd): OUTSIDE default; a RegionTrigger flips it via set_region. RefCounted, made in _ready.
 ## Decaying knockback impulse, added on top of movement. Also carries the lunge.
 var _knockback: Vector2 = Vector2.ZERO
 ## Looping tween that blinks the avatar while invincible; null when not blinking.
@@ -113,6 +115,9 @@ var _blink_tween: Tween = null
 @onready var _blade: Polygon2D = $SwordPivot/Sword/Blade
 @onready var _health: HealthComponent = $HealthComponent
 @onready var _hurtbox: Hurtbox = $Hurtbox
+## Ground shadow (components/ground_shadow.gd): a soft dark ellipse pinned under the feet, drawn
+## below the body. The Elevation component keeps it at the ground point while the body draws up by z.
+@onready var _shadow: GroundShadow = $GroundShadow
 ## One-shot grace timer: while it runs, the next attack continues the combo; on
 ## timeout the combo resets to hit 1.
 @onready var _combo_reset_timer: Timer = $ComboResetTimer
@@ -231,6 +236,15 @@ func _ready() -> void:
 	# Pass the Body too: the dodge dash drops fading afterimage copies of it (components/dash_trail.gd)
 	# plus a kick-off dust puff (components/dust_burst.gd) so the dash READS as a dash. Visual only.
 	_locomotion.setup(self, _hurtbox, _stamina, _body)
+	# Elevation foundation (design-environment.md #3, DECIDED: continuous float z + ground shadow).
+	# RefCounted like the components above. "Call down" the Body (drawn UP by z) + the GroundShadow
+	# (pinned to the ground point). z=0 today, so this is a no-op offset -- the hook exists so real
+	# jumps / stacked floors / an isometric projection are purely ADDITIVE later.
+	_elevation = Elevation.new()
+	_elevation.setup(_body, _shadow)
+	# Inside/outside region (design-environment.md #3). OUTSIDE until a RegionTrigger flips it via
+	# set_region below. Just the flag + `changed` signal foundation -- no roof-fade / lighting / music yet.
+	_region = Region.new()
 
 
 ## Equip a tool (facade -> Equipment.equip_tool). Directly callable -- a headless test
@@ -250,6 +264,12 @@ func interaction_prompt() -> String:
 	return _interaction.current_prompt()
 func interact() -> void:
 	_interaction.try_interact(self)
+
+
+## Region facade (design-environment.md #3) -> the Region flag. A RegionTrigger "calls down" here on
+## body enter/exit; future roof-fade / lighting / music (and the test) read player._region.state.
+func set_region(inside: bool) -> void:
+	_region.set_inside(inside)
 
 
 ## Stamina facade (design-controls.md) -> the Stamina pool: the HUD reads these each frame to fill
