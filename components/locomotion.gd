@@ -25,6 +25,10 @@ const DODGE_TIME: float = 0.18
 const DODGE_SPEED: float = 320.0
 ## Cooldown after a dash before another dodge may start (gates dodge-spam).
 const DODGE_COOLDOWN: float = 0.4
+## Seconds between afterimage "ghost" drops while dashing (components/dash_trail.gd). ~0.05s over the
+## 0.18s dash yields ~3-4 ghosts along the path (plus the one dropped at dash start). VISUAL ONLY --
+## the cadence never touches the dash mechanics.
+const GHOST_INTERVAL: float = 0.05
 
 ## Controlled movement velocity (walk / sprint / dash), kept separate from the player's knockback
 ## so the two never compound. Exposed via the player's _move_velocity facade (get+set).
@@ -40,6 +44,9 @@ var _dodge_dir: Vector2 = Vector2.RIGHT
 ## The player's collision_mask saved at dash start and restored at dash end, so the phase-through
 ## (clearing the enemy-body bit) never loses the world bit or leaks past the dash.
 var _saved_mask: int = 0
+## Time accumulated toward the next afterimage drop while dashing (components/dash_trail.gd). Reset
+## at dash start; ghosts drop each time it crosses GHOST_INTERVAL. Purely a VISUAL cadence clock.
+var _ghost_accum: float = 0.0
 
 ## The player CharacterBody2D (host): read max_speed / acceleration / friction / facing and the
 ## live inventory.encumbrance_factor() off it, and toggle its collision_mask for phase-through.
@@ -47,17 +54,22 @@ var _player: CharacterBody2D = null
 ## The player's Hurtbox -- its dodge_invincible flag is raised for the dash (i-frames) and lowered
 ## after, without touching the normal post-hit i-frame timer.
 var _hurtbox: Hurtbox = null
+## The player's avatar Body Polygon2D -- the afterimage ghosts copy its CURRENT polygon / color /
+## scale.x each drop (components/dash_trail.gd). VISUAL source only; never written here.
+var _body: Polygon2D = null
 ## The player's Stamina pool -- sprint drains it per frame, a dodge spends dodge_cost, and
 ## can_sprint() / current gate both.
 var _stamina: Stamina = null
 
 
-## Wire the host + the player's Hurtbox + the shared Stamina pool (the player "calls down" in its
-## _ready, after it creates the Stamina). Mirrors Combat.setup().
-func setup(player: CharacterBody2D, hurtbox: Hurtbox, stamina: Stamina) -> void:
+## Wire the host + the player's Hurtbox + the shared Stamina pool + the avatar Body (the player
+## "calls down" in its _ready, after it creates the Stamina). The Body is the VISUAL source the dash
+## afterimages copy; it is read, never written. Mirrors Combat.setup().
+func setup(player: CharacterBody2D, hurtbox: Hurtbox, stamina: Stamina, body: Polygon2D) -> void:
 	_player = player
 	_hurtbox = hurtbox
 	_stamina = stamina
+	_body = body
 	_saved_mask = player.collision_mask
 
 
@@ -115,6 +127,12 @@ func _start_dash(input: FrameInput, facing: Vector2) -> void:
 	# pass through them while the world bit (1) still blocks rocks/trees.
 	_player.collision_mask &= ~4
 	_hurtbox.dodge_invincible = true
+	# VISUAL ONLY (design-controls.md dash read): a kick-off dust puff at the launch point + the first
+	# afterimage ghost, both spawned as WORLD SIBLINGS that self-free. This touches no dash mechanic
+	# (distance / i-frames / stamina / cooldown are all set above and unaffected).
+	_ghost_accum = 0.0
+	DustBurst.burst_at(_player.get_parent(), _player.global_position)
+	DashTrail.spawn_ghost(_player, _body)
 
 
 ## Ride an in-flight dash: drive the controlled velocity at DODGE_SPEED along the locked direction,
@@ -122,6 +140,12 @@ func _start_dash(input: FrameInput, facing: Vector2) -> void:
 ## expires. Always consuming (returns true) so regen stays paused across the dash.
 func _tick_dash(delta: float) -> bool:
 	_move_velocity = _dodge_dir * DODGE_SPEED
+	# VISUAL ONLY: drop an afterimage ghost every GHOST_INTERVAL along the path (world sibling, self-
+	# frees). Runs off a cadence clock, so it never perturbs the dash timer / distance below.
+	_ghost_accum += delta
+	while _ghost_accum >= GHOST_INTERVAL:
+		_ghost_accum -= GHOST_INTERVAL
+		DashTrail.spawn_ghost(_player, _body)
 	_dodge_time_left -= delta
 	if _dodge_time_left <= 0.0:
 		_end_dash()

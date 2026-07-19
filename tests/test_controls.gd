@@ -10,6 +10,9 @@ class_name TestControls extends RefCounted
 ##   * Phase 3 -- Dodge: a dash moves ~the dash distance, costs dodge_cost, is BLOCKED under cost,
 ##     grants i-frames (0 damage mid-dash), PHASES through an enemy body, and gates re-dodge on a
 ##     cooldown.
+##   * Phase 4 -- Dash VISUAL effect (dash_trail.gd + dust_burst.gd): a dodge drops fading afterimage
+##     ghosts + a kick-off dust puff as self-freeing WORLD SIBLINGS -- it SPAWNS, is LEAK-FREE, and
+##     leaves the dash mechanics (distance + dodge_cost) unchanged.
 ## Registered in tests/smoke_slash.gd after the other self-contained modules.
 
 ## Physics frames to drive each sprint player -- long enough to reach terminal speed and open a wide
@@ -22,6 +25,7 @@ func run(ctx: TestContext) -> void:
 	_stamina_unit_legs(ctx)
 	await _sprint_legs(ctx)
 	await _dodge_legs(ctx)
+	await _dash_effect_legs(ctx)
 
 
 ## Phase 1 -- pure Stamina math (no scene). Proves the spend gate, the regen DELAY (short pause
@@ -277,6 +281,87 @@ func _dodge_legs(ctx: TestContext) -> void:
 	ph.queue_free()
 	blocker.queue_free()
 	await ctx.settle_idle()
+
+
+## Phase 4 -- Dash VISUAL effect (components/dash_trail.gd + components/dust_burst.gd). Purely
+## cosmetic: a dodge drops fading afterimage ghosts along the path + a kick-off dust puff at the
+## launch point, all as WORLD SIBLINGS that self-free. This leg proves the effect (1) SPAWNS on a
+## dodge (>=1 ghost + a dust burst appear as siblings), (2) is LEAK-FREE (all freed after the fade,
+## watchdogged like the tree-fell test), and (3) does NOT perturb the dodge mechanics -- the dodger
+## still dashes ~the dash distance and spends exactly dodge_cost with the effect live. The dodger
+## lives under a private holder so ghosts/dust (children of the player's PARENT = the holder) are
+## counted in isolation, uncontaminated by the _dodge_legs dashes above.
+func _dash_effect_legs(ctx: TestContext) -> void:
+	var player_scene: PackedScene = load("res://player/player.tscn")
+	if player_scene == null:
+		ctx.check(false, "", "player.tscn failed to load (dash-effect legs)")
+		return
+	var holder: Node2D = Node2D.new()
+	ctx.tree.root.add_child(holder)
+	var fx: Player = player_scene.instantiate() as Player
+	fx.pickup_radius = 0.0
+	holder.add_child(fx)
+	fx.global_position = Vector2(40000, 40000)
+	fx.facing = Vector2.RIGHT
+	await ctx.tree.physics_frame
+	await ctx.tree.physics_frame
+
+	var start_stam: float = fx._stamina.current
+	var fi: FrameInput = FrameInput.new()
+	fi.dodge = true  # idle move -> dash direction falls back to facing (RIGHT)
+	fx.input_override = fi
+	var fx0: float = fx.global_position.x
+	await ctx.tree.physics_frame  # dash starts -> dust + first ghost
+	fi.dodge = false  # drop the edge so the effect + dash are not re-triggered
+	# Step a few frames so the interval ghosts accumulate along the path.
+	for _i in range(6):
+		await ctx.tree.physics_frame
+
+	# --- SPAWNS: at least one afterimage ghost + a dust burst appear as world siblings ---
+	var ghosts: Array = _fx_of(holder, "dash_ghost")
+	var dust: Array = _fx_of(holder, "dash_dust")
+	var ghost_is_poly: bool = ghosts.size() > 0 and ghosts[0] is Polygon2D
+	ctx.check(ghosts.size() >= 1 and ghost_is_poly,
+		"dodge spawned afterimage ghost Polygon2D world-siblings (" + str(ghosts.size()) + " during the dash)",
+		"dodge spawned no afterimage ghosts (" + str(ghosts.size()) + ")")
+	ctx.check(dust.size() >= 1,
+		"dodge spawned a kick-off dust burst world-sibling at the launch point",
+		"dodge spawned no kick-off dust burst (" + str(dust.size()) + ")")
+
+	# --- MECHANICS UNCHANGED: the effect did not perturb dash distance or the dodge_cost spend ---
+	for _i in range(15):
+		await ctx.tree.physics_frame  # let the ~0.18s dash finish
+	var dash_dx: float = fx.global_position.x - fx0
+	ctx.check(dash_dx > 30.0 and dash_dx < 100.0,
+		"dash distance unchanged with the effect live (dx " + str(int(dash_dx)) + " px)",
+		"dash distance perturbed by the effect (dx " + str(int(dash_dx)) + " px)")
+	ctx.check(is_equal_approx(start_stam - fx._stamina.current, 30.0),
+		"dodge_cost spend unchanged with the effect live (" + str(start_stam) + " -> " + str(fx._stamina.current) + ")",
+		"dodge_cost perturbed by the effect (" + str(start_stam) + " -> " + str(fx._stamina.current) + ")")
+
+	# --- LEAK-FREE: after the fades, every ghost + dust is freed (watchdog, like the tree-fell test) ---
+	var wd: SceneTreeTimer = ctx.tree.create_timer(2.0)
+	while (_fx_of(holder, "dash_ghost").size() > 0 or _fx_of(holder, "dash_dust").size() > 0) and wd.time_left > 0.0:
+		await ctx.tree.physics_frame
+	ctx.check(_fx_of(holder, "dash_ghost").size() == 0 and _fx_of(holder, "dash_dust").size() == 0,
+		"dash effect is LEAK-FREE: all afterimages + dust freed after the fade",
+		"dash effect leaked (ghosts " + str(_fx_of(holder, "dash_ghost").size()) + " dust " + str(_fx_of(holder, "dash_dust").size()) + ")")
+
+	fx.input_override = null
+	fx.queue_free()
+	holder.queue_free()
+	await ctx.settle_idle()
+
+
+## Collect the transient dash-effect nodes (afterimage ghosts / dust bursts) that are DIRECT children
+## of `holder` and in group `grp`. The dodger sits under `holder`, and the effect spawns as children
+## of the player's PARENT, so this scopes the count to THIS leg's dodge -- no cross-leg contamination.
+func _fx_of(holder: Node, grp: String) -> Array:
+	var out: Array = []
+	for c in holder.get_children():
+		if c.is_in_group(grp):
+			out.append(c)
+	return out
 
 
 ## Instantiate a magnet-off Player at `at` and add it to root. The caller settles physics frames

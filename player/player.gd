@@ -223,7 +223,9 @@ func _ready() -> void:
 	# tunables, encumbrance, collision_mask for enemy phase-through).
 	_stamina = Stamina.new()
 	_locomotion = Locomotion.new()
-	_locomotion.setup(self, _hurtbox, _stamina)
+	# Pass the Body too: the dodge dash drops fading afterimage copies of it (components/dash_trail.gd)
+	# plus a kick-off dust puff (components/dust_burst.gd) so the dash READS as a dash. Visual only.
+	_locomotion.setup(self, _hurtbox, _stamina, _body)
 
 
 ## Equip a tool (facade -> Equipment.equip_tool). Directly callable -- a headless test
