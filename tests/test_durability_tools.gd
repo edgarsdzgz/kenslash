@@ -300,4 +300,55 @@ func run(ctx: TestContext) -> void:
 
 	dummy.stationary = dummy_was_stationary  # restore the training-dummy hold
 
-# Verified against: Godot 4.7.1 (2026-07-18)
+	# --- t. UNARMED punch (CHANGE 3): equip an EMPTY slot -> a short forward JAB that deals
+	# UNARMED_ATK to a target in front, takes NO durability, and does NOT advance the combo.
+	# A punch, not a sword swing: _punch() thrusts a small fist a SHORT reach then retracts.
+	# The dummy is the target -- def is temporarily zeroed so UNARMED_ATK (1) lands fully
+	# (max(0,atk-def)); its huge 80x80 Hurtbox guarantees the short-reach fist overlaps. The
+	# fist activates the SAME Sword Hitbox _apply_unarmed left with null durability, so no wear
+	# is even attempted. Restore the dummy def + the sword afterward.
+	var dummy_hurtbox2: Hurtbox = dummy.get_node("Hurtbox") as Hurtbox
+	var dummy_def_saved: int = dummy_hurtbox2.def
+	var dummy_was_stationary2: bool = dummy.stationary
+	dummy.stationary = true
+	dummy_hurtbox2.def = 0
+	dummy.global_position = Vector2.ZERO
+	dummy._move_velocity = Vector2.ZERO
+	dummy._knockback = Vector2.ZERO
+	dummy_health.heal(dummy_health.max_health)
+	player.inventory.equip_index(3)  # an EMPTY slot -> unarmed (the fist)
+	player._apply_equipped()
+	ctx.check(player._is_unarmed and player._sword.durability == null,
+		"empty slot equips the unarmed fist (no tool, no durability)",
+		"unarmed detect/durability wrong (unarmed=" + str(player._is_unarmed) + " durability=" + str(player._sword.durability) + ")")
+	player.global_position = Vector2(-32, 0)  # short reach still lands on the origin dummy
+	player.facing = Vector2.RIGHT
+	player._knockback = Vector2.ZERO
+	player._combo_index = 0
+	for _i in range(30):
+		if not player._attacking:
+			break
+		await ctx.tree.physics_frame
+	for _i in range(10):  # let any i-frame window expire
+		await ctx.tree.physics_frame
+	var punch_hp_before: int = dummy_health.current_health
+	await player.attack()
+	for _i in range(4):
+		await ctx.tree.physics_frame
+	var punch_dmg: int = punch_hp_before - dummy_health.current_health
+	ctx.check(player._combat._last_punch_reach > 0.0,
+		"unarmed attack is a forward JAB -- the fist thrust out a measurable reach (" + str(player._combat._last_punch_reach) + ")",
+		"unarmed jab recorded no forward reach (" + str(player._combat._last_punch_reach) + ")")
+	ctx.check(punch_dmg == Player.UNARMED_ATK,
+		"the punch dealt UNARMED_ATK (" + str(Player.UNARMED_ATK) + ") to the target in front (dealt " + str(punch_dmg) + ")",
+		"unarmed punch damage wrong (expected " + str(Player.UNARMED_ATK) + ", dealt " + str(punch_dmg) + ")")
+	ctx.check(player._combo_index == 0,
+		"the punch is a single jab -- it did NOT advance a combo (index stays 0)",
+		"unarmed punch wrongly advanced the combo (index " + str(player._combo_index) + ")")
+	dummy_hurtbox2.def = dummy_def_saved  # restore the dummy's flesh def
+	dummy.stationary = dummy_was_stationary2
+	player.inventory.equip_index(0)  # restore the sword
+	player._apply_equipped()
+	player._combo_index = 0
+
+# Verified against: Godot 4.7.1 (2026-07-19)

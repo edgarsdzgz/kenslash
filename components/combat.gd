@@ -2,10 +2,19 @@ class_name Combat
 extends RefCounted
 ## The sword-combo subsystem, extracted from player.gd (recipes/health-and-damage.md, the
 ## facing-directed 3-hit combo). Owns the combo STATE (_combo_index, _attacking, the active
-## blade-sweep tween) and drives one swing: an overhead arc chop for hits 1 & 2, a forward
-## lunge for hit 3. PURE extraction -- behavior is identical to the pre-split player.gd; the
-## player keeps a thin facade (attack / _combo_index / _attacking) that forwards here so tests
-## and _simulate read/write player.X unchanged.
+## blade-sweep tween) and drives one swing. The player keeps a thin facade (attack /
+## _combo_index / _attacking) that forwards here so tests and _simulate read/write player.X
+## unchanged.
+##
+## SWING DIRECTIONS (the SWORD is the exception to "all swings chop down"): ONLY a combo
+## weapon (the sword, has_combo) varies its direction across the 3-hit combo -- hit 0 is the
+## overhead DOWN-slash (top -> bottom on screen), hit 1 the RISING UP-slash (the reverse arc,
+## bottom -> top), hit 2 the forward THRUST (lunge). A non-combo tool (axe/pickaxe) only ever
+## reaches _combo_index 0, so it keeps the single overhead down-chop. UNARMED (no tool) is a
+## separate quick forward JAB (_punch), never an arc. A subtle scale-based PERSPECTIVE cue
+## sells depth on the flat blade during a swing (thrust stretches + narrows to read as going
+## INTO the scene; arcs shrink from near to far) and is RESET in _end_swing so no swing leaves
+## a distorted blade.
 ##
 ## RefCounted, NOT a Node -- exactly like components/equipment.gd, components/interaction.gd,
 ## and components/pickup.gd. A Combat Node add_child'd to the player would bump the global
@@ -50,6 +59,33 @@ var _sword_shape: CollisionShape2D = null
 ## stopped when a swing begins so the window cannot expire mid-swing.
 var _combo_reset_timer: Timer = null
 
+## Perspective cue tuning (juice, all subtle, all RESET in _end_swing). Scale is applied to the
+## visual _blade Polygon2D ONLY -- never the CollisionShape2D -- so hittability is unchanged.
+const THRUST_STRETCH: float = 1.6  ## Thrust: blade grows along its length (reads as going INTO the scene).
+const THRUST_NARROW: float = 0.65  ## ...and narrows across (foreshorten).
+const ARC_NEAR: float = 1.15  ## Arc START (near part of the sweep) a touch bigger.
+const ARC_FAR: float = 0.9  ## Arc END (far part) smaller -- a subtle depth read across the sweep.
+## Unarmed jab tuning. The fist is SHORT-reach (a punch, not a sword): the pivot slides from a
+## tucked pose out to `extended` (fist center ~ facing*(24 - PUNCH_BACK + PUNCH_REACH), well
+## inside the sword's static 24px reach) and back, while a small fist silhouette is shown.
+const FIST_SCALE: Vector2 = Vector2(0.55, 0.9)  ## Small blocky fist (scales the plain rectangle blade down).
+const PUNCH_BACK: float = 18.0  ## How far the fist is tucked toward the body at jab start.
+const PUNCH_REACH: float = 10.0  ## SHORT forward travel of the jab.
+
+## Last arc sweep endpoints [start, end] pivot rotation (radians), recorded each swing so a test
+## can assert hit 0 (down-slash) and hit 1 (up-slash) sweep OPPOSITE vertical ways. Thrust sets
+## both to `base` (no sweep). Read via player._combat.
+var _last_arc_start: float = 0.0
+var _last_arc_end: float = 0.0
+## Last unarmed jab's forward reach (px), recorded so a test can assert the fist thrust OUT.
+var _last_punch_reach: float = 0.0
+## The SwordPivot's authored rest position, captured in setup(). The punch slides the pivot for
+## its thrust; _end_swing snaps it back here so no swing leaves the pivot displaced.
+var _pivot_rest: Vector2 = Vector2.ZERO
+## Active perspective/jab tween (blade scale for arcs/thrust, pivot slide for the punch). Killed
+## in _end_swing / cancel_swing before the reset so a lingering tween cannot re-distort the blade.
+var _fx_tween: Tween = null
+
 
 ## Wire the host + the shared SwordPivot / Blade / Sword CollisionShape2D / ComboResetTimer (the
 ## player "calls down" in its _ready), and take over the combo-reset timeout connection the
@@ -61,6 +97,8 @@ func setup(player: Node2D, sword_pivot: Node2D, blade: Polygon2D, sword_shape: C
 	_blade = blade
 	_sword_shape = sword_shape
 	_combo_reset_timer = combo_reset_timer
+	# Remember where the pivot rests so the punch (which slides it for the jab) can snap back.
+	_pivot_rest = _sword_pivot.position
 	# The combo continue-window: on timeout the next swing restarts at hit 1. Owned here now
 	# (the player used to connect this in its _ready) so the combo state stays with the combo.
 	_combo_reset_timer.timeout.connect(_on_combo_reset)
@@ -68,10 +106,11 @@ func setup(player: Node2D, sword_pivot: Node2D, blade: Polygon2D, sword_shape: C
 
 ## Play a swing in the current facing direction, then retract the blade. Callable directly via
 ## the player.attack() facade -- the headless smoke test calls it, so attacking must NOT be gated
-## solely behind real input. The equipped tool decides the STYLE: a combo weapon (the sword)
-## chains arc -> arc -> lunge, pressing again within combo_window to continue; a regular tool
-## (axe/pickaxe/unarmed) does a single arc swing per press with no chain (the tail's
-## player._combo_enabled gate). The swing shape itself is still chosen by _combo_index.
+## solely behind real input. The equipped tool decides the STYLE: UNARMED (no tool) is a quick
+## forward JAB (_punch); a combo weapon (the sword) chains DOWN-slash -> UP-slash -> thrust,
+## pressing again within combo_window to continue; a regular tool (axe/pickaxe) does a single
+## overhead down-slash per press with no chain (the tail's player._combo_enabled gate). The swing
+## shape itself is still chosen by _combo_index, so a test that forces the index gets that swing.
 func attack() -> void:
 	if _attacking or _player._sword_broken:
 		return
@@ -79,27 +118,37 @@ func attack() -> void:
 	# Continuing the combo: stop the reset so the window does not expire mid-swing.
 	_combo_reset_timer.stop()
 
-	var base: float = _player.facing.angle()
-	var half: float = deg_to_rad(_player.arc_degrees / 2.0)
-
-	match _combo_index:
-		0, 1:
-			# Arc hits (1 & 2): an OVERHEAD chop -- always sweeps from the TOP of the arc down
-			# to the bottom ON SCREEN, for ANY facing. Screen +y is DOWN, so we start at the
-			# endpoint that is higher (smaller sin) and finish at the lower one. A fixed
-			# +half -> -half instead reads top-down for one facing but BOTTOM-UP for its mirror
-			# -- the "backwards" swing when facing right. Both combo arcs strike downward.
-			var arc: Array = _overhead_arc(base, half)
-			_sword_pivot.rotation = arc[0]
-			_begin_swing()
-			await _sweep_to(arc[1])
-		2:
-			# Hit 3: lunge. Blade straight along facing; nudge the player forward
-			# through the existing decaying-knockback system so it slides and stops.
-			_sword_pivot.rotation = base
-			_begin_swing()
-			_player._knockback = _player.facing * _player.lunge_impulse
-			await _player.get_tree().create_timer(_player.swing_duration).timeout
+	if _player._is_unarmed:
+		# No tool: a quick forward jab, never the sword arc/combo.
+		await _punch()
+	else:
+		var base: float = _player.facing.angle()
+		var half: float = deg_to_rad(_player.arc_degrees / 2.0)
+		match _combo_index:
+			0, 1:
+				# The SWORD varies its DIRECTION (the exception to "all swings chop down"):
+				# hit 0 is the OVERHEAD down-slash (top -> bottom on screen), hit 1 the RISING
+				# up-slash (the REVERSE arc, bottom -> top). Both are screen-oriented for ANY
+				# facing (_overhead_arc / _rising_arc pick the endpoints by sin, not a fixed
+				# +/-half, so a facing and its mirror both read correctly). A non-combo tool
+				# only ever reaches index 0, so it keeps the single overhead down-chop.
+				var arc: Array = _overhead_arc(base, half) if _combo_index == 0 else _rising_arc(base, half)
+				_last_arc_start = arc[0]
+				_last_arc_end = arc[1]
+				_sword_pivot.rotation = arc[0]
+				_begin_swing()
+				_perspective_arc()
+				await _sweep_to(arc[1])
+			2:
+				# Hit 2: forward THRUST (lunge). Blade straight along facing; nudge the player
+				# forward through the existing decaying-knockback system so it slides and stops.
+				_last_arc_start = base
+				_last_arc_end = base
+				_sword_pivot.rotation = base
+				_begin_swing()
+				_perspective_thrust()
+				_player._knockback = _player.facing * _player.lunge_impulse
+				await _player.get_tree().create_timer(_player.swing_duration).timeout
 
 	_end_swing()
 	# Bail if a mid-swing death freed us out of the tree.
@@ -131,19 +180,83 @@ func _overhead_arc(base: float, half: float) -> Array:
 	return [b, a]
 
 
+## Return [start, end] pivot rotation for a RISING arc (bottom -> top on screen) -- the exact
+## REVERSE of _overhead_arc, so hit 1 sweeps the opposite vertical way from hit 0's down-slash.
+## Screen-oriented for ANY facing by reusing the same sin-picked endpoints, just swapped.
+func _rising_arc(base: float, half: float) -> Array:
+	var arc: Array = _overhead_arc(base, half)
+	return [arc[1], arc[0]]
+
+
+## PERSPECTIVE for an ARC swing (juice): a subtle scale that starts a touch bigger (near part
+## of the sweep) and shrinks across the sweep (far part), for a light depth read. Scales the
+## visual _blade ONLY (never the hitbox). Tracked in _fx_tween so _end_swing can kill + reset it.
+func _perspective_arc() -> void:
+	if _fx_tween != null and _fx_tween.is_valid():
+		_fx_tween.kill()
+	_blade.scale = Vector2(ARC_NEAR, ARC_NEAR)
+	_fx_tween = _player.create_tween()
+	_fx_tween.tween_property(_blade, "scale", Vector2(ARC_FAR, ARC_FAR), _player.swing_duration)
+
+
+## PERSPECTIVE for the THRUST (juice): the blade stretches along its length and narrows across
+## as it extends "out", so it reads as going INTO the scene, then restores. Scales the visual
+## _blade ONLY. Tracked in _fx_tween so _end_swing can kill + reset it (final reset snaps to ONE).
+func _perspective_thrust() -> void:
+	if _fx_tween != null and _fx_tween.is_valid():
+		_fx_tween.kill()
+	_fx_tween = _player.create_tween()
+	_fx_tween.tween_property(_blade, "scale", Vector2(THRUST_STRETCH, THRUST_NARROW), _player.swing_duration * 0.5)
+	_fx_tween.tween_property(_blade, "scale", Vector2.ONE, _player.swing_duration * 0.5)
+
+
+## UNARMED jab (design-inventory.md): a SHORT forward thrust of a small fist hitbox along facing,
+## then retract -- NOT the sword arc/combo. Points the fist forward (the lunge pose), shrinks the
+## blade to a small fist silhouette, enables the hitbox for the WHOLE window (guaranteed overlap,
+## like the lunge), and slides the pivot from a tucked pose out to a SHORT reach and back. Single
+## jab: attack()'s tail (unarmed -> _combo_enabled false) never advances the combo. The UNARMED_ATK
+## HP + null durability come from _apply_unarmed's hitbox stats, untouched here. _end_swing resets
+## the fist scale + snaps the pivot back to rest.
+func _punch() -> void:
+	var facing: Vector2 = _player.facing
+	_sword_pivot.rotation = facing.angle()
+	_blade.scale = FIST_SCALE
+	_last_punch_reach = PUNCH_REACH
+	_begin_swing()
+	if _fx_tween != null and _fx_tween.is_valid():
+		_fx_tween.kill()
+	# Tuck the fist toward the body, jab OUT a short reach, then pull back to the tuck. The whole
+	# swept range stays SHORT (inside the sword's 24px static reach) yet covers a target in front.
+	var tucked: Vector2 = _pivot_rest - facing * PUNCH_BACK
+	var extended: Vector2 = tucked + facing * PUNCH_REACH
+	_sword_pivot.position = tucked
+	_fx_tween = _player.create_tween()
+	_fx_tween.tween_property(_sword_pivot, "position", extended, _player.swing_duration * 0.5)
+	_fx_tween.tween_property(_sword_pivot, "position", tucked, _player.swing_duration * 0.5)
+	await _player.get_tree().create_timer(_player.swing_duration).timeout
+
+
 ## Enable the blade collision and show the silver rectangle for a swing.
 func _begin_swing() -> void:
 	_sword_shape.disabled = false
 	_blade.visible = true
 
 
-## Disable the blade collision and hide the rectangle after a swing. Guarded so a
+## Disable the blade collision and hide the rectangle after a swing, and RESET the perspective/
+## jab transforms (kill any live fx tween, restore blade scale/skew to default, snap the pivot
+## back to rest) so no swing leaves a distorted blade or a displaced pivot. Guarded so a
 ## mid-swing death that freed these nodes cannot crash the retract.
 func _end_swing() -> void:
+	if _fx_tween != null and _fx_tween.is_valid():
+		_fx_tween.kill()
 	if is_instance_valid(_sword_shape):
 		_sword_shape.disabled = true
 	if is_instance_valid(_blade):
 		_blade.visible = false
+		_blade.scale = Vector2.ONE
+		_blade.skew = 0.0
+	if is_instance_valid(_sword_pivot):
+		_sword_pivot.position = _pivot_rest
 
 
 ## Tween the pivot rotation to `target` over swing_duration and await it, tracking
@@ -168,12 +281,21 @@ func _on_combo_reset() -> void:
 func cancel_swing() -> void:
 	if _swing_tween != null and _swing_tween.is_valid():
 		_swing_tween.kill()
+	# Also kill any live perspective/jab tween so it cannot re-distort the blade or slide the
+	# pivot after the cancel (the coroutine that would have called _end_swing is leaked below).
+	if _fx_tween != null and _fx_tween.is_valid():
+		_fx_tween.kill()
 	# Tween.kill() does NOT emit `finished`, so the attack() coroutine suspended on
 	# `await _swing_tween.finished` never resumes and would leave _attacking latched true. Clear it
 	# HERE so the combat state is always consistent after a cancel, regardless of the leaked coroutine.
 	_attacking = false
-	_blade.visible = false
+	if is_instance_valid(_blade):
+		_blade.visible = false
+		_blade.scale = Vector2.ONE
+		_blade.skew = 0.0
 	if is_instance_valid(_sword_shape):
 		_sword_shape.disabled = true
+	if is_instance_valid(_sword_pivot):
+		_sword_pivot.position = _pivot_rest
 
 # Verified against: Godot 4.7.1 (2026-07-19)

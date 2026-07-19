@@ -34,7 +34,7 @@ position = Vector2(0, -6)
 shape = SubResource("RectangleShape2D_body")
 
 [node name="SwordPivot" type="Node2D" parent="."]
-position = Vector2(0, -26)
+position = Vector2(0, -22)
 
 [node name="Sword" type="Area2D" parent="SwordPivot"]
 collision_layer = 8

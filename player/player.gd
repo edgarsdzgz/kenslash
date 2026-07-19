@@ -143,6 +143,11 @@ var _sword_broken: bool:
 var _combo_enabled: bool:
 	get:
 		return _equipment.active_combos()
+## Whether NO tool is equipped (the unarmed fist). Owned by the Equipment. Read in Combat's
+## attack() (via _player._is_unarmed) to run a forward JAB instead of the sword arc/combo.
+var _is_unarmed: bool:
+	get:
+		return _equipment.is_unarmed()
 
 
 # --- Combat facade -------------------------------------------------------------------

@@ -340,4 +340,38 @@ func run(ctx: TestContext) -> void:
 	player.equip_tool(Player.SWORD_DATA)  # restore the default combo weapon
 	player._combo_index = 0
 
-# Verified against: Godot 4.7.1 (2026-07-17)
+	# --- k. Sword swing DIRECTIONS vary + perspective RESET (CHANGE 2) -----------
+	# ONLY the sword varies its direction: hit 0 is the overhead DOWN-slash (top ->
+	# bottom on screen), hit 1 the RISING UP-slash (the reverse arc, bottom -> top),
+	# hit 2 the forward thrust (leg f already proves the thrust slides forward). Assert
+	# hit 1 is the exact reverse of hit 0 (swapped sweep endpoints) AND that the two sweep
+	# OPPOSITE vertical ways for facing right; then that a swing leaves NO residual blade
+	# scale/skew (the perspective cue is reset in _end_swing). Park far from every body.
+	player.equip_tool(Player.SWORD_DATA)
+	player.global_position = Vector2(6000, 6000)
+	player.facing = Vector2.RIGHT
+	player._knockback = Vector2.ZERO
+	for _i in range(30):
+		if not player._attacking:
+			break
+		await ctx.tree.physics_frame
+	player._combo_index = 0
+	await ctx.tree.physics_frame
+	await player.attack()  # hit 0: overhead down-slash
+	var down_start: float = player._combat._last_arc_start
+	var down_end: float = player._combat._last_arc_end
+	await player.attack()  # hit 1: rising up-slash (the reverse arc)
+	var up_start: float = player._combat._last_arc_start
+	var up_end: float = player._combat._last_arc_end
+	ctx.check(is_equal_approx(up_start, down_end) and is_equal_approx(up_end, down_start),
+		"sword hit 1 is the REVERSE arc of hit 0 (up-slash swaps the down-slash sweep endpoints)",
+		"sword hit 1 did not reverse hit 0 (down " + str(down_start) + "->" + str(down_end) + " up " + str(up_start) + "->" + str(up_end) + ")")
+	ctx.check(down_end > down_start and up_end < up_start,
+		"hit 0 sweeps DOWN while hit 1 sweeps UP (opposite vertical directions, facing right)",
+		"sword sweep directions not opposite (down " + str(down_start) + "->" + str(down_end) + " up " + str(up_start) + "->" + str(up_end) + ")")
+	ctx.check(player._blade.scale == Vector2.ONE and is_equal_approx(player._blade.skew, 0.0),
+		"the blade scale/skew reset after the swing (no residual perspective distortion)",
+		"blade left distorted after a swing (scale=" + str(player._blade.scale) + " skew=" + str(player._blade.skew) + ")")
+	player._combo_index = 0
+
+# Verified against: Godot 4.7.1 (2026-07-19)

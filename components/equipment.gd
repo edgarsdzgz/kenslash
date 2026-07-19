@@ -181,6 +181,14 @@ func active_combos() -> bool:
 	return _active_tool != null and _active_tool.has_combo
 
 
+## Is the player UNARMED (no tool equipped -> _apply_unarmed set the fist stats)? True ONLY
+## when there is no active tool -- a BROKEN sword still HAS an active tool, so it is never
+## mistaken for the fist. Read by the player's attack() (via the _is_unarmed facade) to run a
+## quick forward JAB instead of the sword arc/combo.
+func is_unarmed() -> bool:
+	return _active_tool == null
+
+
 ## Look up (or lazily create) the RUNTIME DurabilityComponent for `tool`, keyed by its
 ## resource path so a future ToolData outside the three built-in nodes (a new inventory
 ## item) still gets its own independent wear counter instead of reusing someone else's
@@ -278,4 +286,4 @@ func handle_wheel_input(event: InputEvent) -> void:
 			inventory.cycle(1)
 			apply_equipped()
 
-# Verified against: Godot 4.7.1 (2026-07-18)
+# Verified against: Godot 4.7.1 (2026-07-19)
