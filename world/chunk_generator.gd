@@ -54,10 +54,16 @@ static func generate(coord: Vector2i, world_seed: int) -> ChunkData:
 		})
 
 	if rng.randf() < ENEMY_CHANCE:
+		# The enemy's local_pos is drawn HERE (one randf per axis, exactly as before) so the seeded
+		# sequence is untouched. The ENEMY TYPE, however, is DERIVED (not drawn) from a pure hash of
+		# (coord, this local_pos) -- see _derive_enemy_type -- so it consumes ZERO rng: the bush/pebble
+		# draws that follow stay at the SAME positions in the sequence, and every per-Kind count/position
+		# is byte-identical to the single-type version. Only the enemy's flavour varies.
+		var e_local: Vector2 = _rand_local(rng)
 		cd.entries.append({
 			"type": ChunkData.Kind.ENEMY,
-			"local_pos": _rand_local(rng),
-			"state": {},
+			"local_pos": e_local,
+			"state": {"enemy_type": _derive_enemy_type(coord, e_local)},
 		})
 
 	# Bushes are drawn LAST (E4): appending after the enemy draw keeps every existing
@@ -96,6 +102,34 @@ static func _derive_seed(coord: Vector2i, world_seed: int) -> int:
 	return h
 
 
+## DETERMINISTICALLY pick a Kind.ENEMY entry's roster type (ChunkData.EnemyType) WITHOUT consuming the
+## seeded rng. This is the DETERMINISM TRAP fix: the generator draws are ordered (ENEMY before BUSH /
+## PEBBLE), so pulling an rng.randi here to pick a type would SHIFT every later draw and change the
+## bush/pebble scatter. Instead we fold the already-decided (coord, local_pos) through a pure integer
+## hash -- no rng touched -- so TREE/MINERAL/ENEMY/BUSH/PEBBLE counts + positions stay byte-identical;
+## only which enemy scene an ENEMY entry becomes varies. A weighted bucket over hash % 10 keeps the
+## Swordsman common (50%) and the standalone types rarer (Tank 20%, Charger 20%, Spitter 10%), so a
+## streamed region reads as mostly duelers with occasional brutes / dashers / spitters. Same inputs ->
+## same type on every machine (integer math, no Time/OS input), matching generate()'s purity contract.
+static func _derive_enemy_type(coord: Vector2i, local_pos: Vector2) -> int:
+	var h: int = 0x2545F4914F6CDD1D
+	h ^= coord.x * 73856093
+	h ^= coord.y * 19349663
+	h ^= int(local_pos.x) * 83492791
+	h ^= int(local_pos.y) * 2654435761
+	h ^= h >> 29
+	var bucket: int = h % 10
+	if bucket < 0:
+		bucket += 10  # GDScript % keeps the sign of the dividend; fold negatives into [0, 10)
+	if bucket < 5:
+		return ChunkData.EnemyType.SWORDSMAN   # 0-4 -> 50%
+	elif bucket < 7:
+		return ChunkData.EnemyType.TANK        # 5-6 -> 20%
+	elif bucket < 9:
+		return ChunkData.EnemyType.CHARGER     # 7-8 -> 20%
+	return ChunkData.EnemyType.SPITTER         # 9   -> 10%
+
+
 ## A random position strictly within the chunk's local box [0, CHUNK_PX).
 static func _rand_local(rng: RandomNumberGenerator) -> Vector2:
 	return Vector2(
@@ -103,4 +137,4 @@ static func _rand_local(rng: RandomNumberGenerator) -> Vector2:
 		rng.randf_range(0.0, WorldScale.CHUNK_PX),
 	)
 
-# Verified against: Godot 4.7.1 (2026-07-17)
+# Verified against: Godot 4.7.1 (2026-07-19)

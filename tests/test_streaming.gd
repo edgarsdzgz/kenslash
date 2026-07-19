@@ -158,6 +158,56 @@ func run(ctx: TestContext) -> void:
 	synth_rock.queue_free()
 	await ctx.tree.physics_frame
 
+	# --- C3a: ENEMY entries carry a deterministic enemy_type -> a VARIED roster --------------
+	# Encounter variety (design-enemies.md roster). ONE Kind.ENEMY still covers all four types; the
+	# specific type rides in the entry's state["enemy_type"], DERIVED by ChunkGenerator from a pure hash
+	# of the entry -- consuming ZERO seeded-rng draws -- so the TREE/MINERAL/ENEMY/BUSH/PEBBLE draw ORDER
+	# (and every per-Kind count asserted above) is byte-unchanged; only which scene an ENEMY becomes varies.
+	# Scan a bounded deterministic region: every ENEMY entry must carry a valid enemy_type, and MORE THAN
+	# ONE distinct type must appear across the region (real variety, not a constant).
+	var types_seen: Dictionary = {}          # enemy_type (int) -> true, across the scanned region
+	var all_typed: bool = true
+	var enemy_entries: int = 0
+	var sample_coord: Vector2i = Vector2i(_SCAN_MISS, _SCAN_MISS)   # first coord carrying an enemy
+	for cx in range(0, 24):
+		for cy in range(0, 24):
+			var cd2: ChunkData = ChunkGenerator.generate(Vector2i(cx, cy), manager.world_seed)
+			for e in cd2.entries:
+				if int(e["type"]) != ChunkData.Kind.ENEMY:
+					continue
+				enemy_entries += 1
+				if sample_coord.x == _SCAN_MISS:
+					sample_coord = Vector2i(cx, cy)
+				var es: Dictionary = e["state"]
+				var et: int = int(es.get("enemy_type", -1))
+				if not es.has("enemy_type") or et < 0 or et > 3:
+					all_typed = false
+				else:
+					types_seen[et] = true
+	ctx.check(all_typed and enemy_entries >= 1 and types_seen.size() >= 2,
+		"encounter variety: every ENEMY entry carries a valid enemy_type and MORE THAN ONE type appears across the region (" + str(types_seen.size()) + " distinct across " + str(enemy_entries) + " enemies)",
+		"enemy_type variety wrong (all_typed=" + str(all_typed) + " distinct=" + str(types_seen.size()) + " enemies=" + str(enemy_entries) + ")")
+
+	# DETERMINISM: the SAME (coord, seed) yields the SAME enemy_type(s) on every regen (pure hash, no rng).
+	var det_a: Array = _enemy_types_of(ChunkGenerator.generate(sample_coord, manager.world_seed))
+	var det_b: Array = _enemy_types_of(ChunkGenerator.generate(sample_coord, manager.world_seed))
+	ctx.check(det_a.size() >= 1 and det_a == det_b,
+		"enemy_type is DETERMINISTIC: same coord " + str(sample_coord) + " + seed -> identical enemy_type(s) " + str(det_a),
+		"enemy_type not deterministic (" + str(det_a) + " vs " + str(det_b) + ")")
+
+	# The enemy_type actually SELECTS the scene: spawn one entry of each observed type via the SAME
+	# ChunkContent.spawn() the manager uses, and confirm each instance is the matching roster class.
+	var spawn_ok: bool = true
+	for t in types_seen.keys():
+		var probe: Dictionary = {"type": ChunkData.Kind.ENEMY, "local_pos": Vector2.ZERO, "state": {"enemy_type": int(t)}}
+		var inst: Node2D = ChunkContent.spawn(probe)
+		if not _enemy_class_matches(inst, int(t)):
+			spawn_ok = false
+		inst.free()
+	ctx.check(spawn_ok and types_seen.size() >= 2,
+		"spawn switch maps each enemy_type to its roster scene (Swordsman/Tank/Charger/Spitter), " + str(types_seen.size()) + " distinct types verified",
+		"spawn did not map an enemy_type to the right roster class (ok=" + str(spawn_ok) + ")")
+
 	# --- ZERO-ORPHAN-LEAK on unload ------------------------------------------
 	# Settle at a baseline center and snapshot the node population. Then drive the
 	# target on a LONG round trip that activates+deactivates MANY far chunks, then
@@ -437,6 +487,30 @@ func _find_chunk(seed_val: int, min_minerals: int, want_enemy: bool, avoid: Vect
 			if minerals >= min_minerals and (has_enemy or not want_enemy):
 				return c
 	return Vector2i(_SCAN_MISS, _SCAN_MISS)
+
+
+## The enemy_type ints of every Kind.ENEMY entry in a generated chunk, in entry order (empty if none).
+## Used by the determinism leg to compare two regenerations of the same coord.
+func _enemy_types_of(data: ChunkData) -> Array:
+	var out: Array = []
+	for e in data.entries:
+		if int(e["type"]) == ChunkData.Kind.ENEMY:
+			out.append(int((e["state"] as Dictionary).get("enemy_type", -1)))
+	return out
+
+
+## True iff a spawned enemy node's class matches its ChunkData.EnemyType (the spawn-switch mapping).
+## All four extend Enemy, so the check is on the concrete subclass the enemy_type should have selected.
+func _enemy_class_matches(node: Node, t: int) -> bool:
+	match t:
+		ChunkData.EnemyType.TANK:
+			return node is Tank
+		ChunkData.EnemyType.CHARGER:
+			return node is Charger
+		ChunkData.EnemyType.SPITTER:
+			return node is Spitter
+		_:
+			return node is Swordsman
 
 
 ## The live Rock instances directly under a chunk container (empty if the container is null).

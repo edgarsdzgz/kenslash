@@ -21,6 +21,15 @@ class_name ChunkContent
 const TREE_SCENE: PackedScene = preload("res://world/tree.tscn")
 const ROCK_SCENE: PackedScene = preload("res://world/rock.tscn")
 const ENEMY_SCENE: PackedScene = preload("res://enemy/enemy.tscn")
+## The three STANDALONE roster types a Kind.ENEMY entry may instead spawn as (encounter variety). One
+## Kind.ENEMY still covers all four -- the specific type rides in the entry's state["enemy_type"]
+## (ChunkData.EnemyType), derived deterministically by ChunkGenerator -- so the C3a census stays
+## ENEMY-based and hp-capture still works through the shared base HealthComponent. The Tank reuses the
+## existing tank.gd scene (enemy/dummy.tscn); a STREAMED tank is un-pinned (stationary=false, set at
+## spawn) so it plays its GRAZE/ENRAGED/CALM AI in the world rather than standing as a training dummy.
+const TANK_SCENE: PackedScene = preload("res://enemy/dummy.tscn")
+const CHARGER_SCENE: PackedScene = preload("res://enemy/charger.tscn")
+const SPITTER_SCENE: PackedScene = preload("res://enemy/spitter.tscn")
 ## The forageable bush scene (E4). A generated interactable (unlike DROP): spawned one-per
 ## BUSH entry, harvested by the player's Interaction subsystem, freed on harvest -> the
 ## deactivate is_instance_valid path flags its entry `gone`, so a harvested bush never respawns.
@@ -65,10 +74,28 @@ static func spawn(entry: Dictionary) -> Node2D:
 			rock.hardness = MINERAL_HARDNESS
 			node = rock
 		ChunkData.Kind.ENEMY:
-			# Bare flesh enemy; enemy.gd resolves its target via the "player" group at
-			# runtime (the streaming_world Player is in that group).
-			var enemy: Enemy = ENEMY_SCENE.instantiate()
+			# Encounter variety: the entry's state carries a deterministic enemy_type (ChunkData.
+			# EnemyType) that selects WHICH roster scene to instance. All four extend Enemy and resolve
+			# their target via the "player" group at runtime (the streaming_world Player is in that
+			# group), so a streamed instance chases/kites/grazes with NO target wiring -- and a Tank
+			# with no player near simply GRAZE-idles, a Charger/Spitter kite-idle, all no-ops. A missing
+			# enemy_type (a pre-variety persisted chunk) falls back to the common Swordsman.
 			var e_state: Dictionary = entry["state"]
+			var e_type: int = int(e_state.get("enemy_type", ChunkData.EnemyType.SWORDSMAN))
+			var enemy: Enemy
+			match e_type:
+				ChunkData.EnemyType.TANK:
+					# The Tank scene (tank.gd on dummy.tscn) is authored `stationary = true` for the
+					# durability-test dummy; un-pin a STREAMED tank so it plays its GRAZE/ENRAGED/CALM AI.
+					var tank: Enemy = TANK_SCENE.instantiate()
+					tank.stationary = false
+					enemy = tank
+				ChunkData.EnemyType.CHARGER:
+					enemy = CHARGER_SCENE.instantiate()
+				ChunkData.EnemyType.SPITTER:
+					enemy = SPITTER_SCENE.instantiate()
+				_:
+					enemy = ENEMY_SCENE.instantiate()  # SWORDSMAN (default/common)
 			if e_state.has("hp"):
 				# HealthComponent._ready() resets current_health to max on tree-entry, so a
 				# stored (reduced) hp must be re-applied AFTER that -- on the enemy's `ready`

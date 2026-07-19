@@ -36,7 +36,7 @@ position = Vector2(0, -6)
 shape = SubResource("RectangleShape2D_body")
 
 [node name="HealthComponent" parent="." instance=ExtResource("2_health")]
-max_health = 10
+max_health = 28
 
 [node name="Hurtbox" type="Area2D" parent="."]
 collision_layer = 16

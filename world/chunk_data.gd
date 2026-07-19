@@ -24,6 +24,14 @@ extends RefCounted
 ## Appended AFTER BUSH -- existing values are NEVER renumbered (they persist to disk later).
 enum Kind { TREE, MINERAL, ENEMY, DROP, BUSH, PEBBLE }
 
+## The concrete TYPE a Kind.ENEMY entry spawns as (encounter variety). Kept as ONE Kind.ENEMY (the
+## census + hp-capture stay ENEMY-based); the specific roster type rides in the entry's `state` as a
+## small serializable int (state["enemy_type"]), derived DETERMINISTICALLY by ChunkGenerator from a
+## hash of the entry -- NOT from a seeded-rng draw, so the scatter's draw ORDER (and every per-Kind
+## count) is byte-unchanged. SWORDSMAN is the default/common type; an entry with no enemy_type (a
+## pre-variety persisted chunk) falls back to SWORDSMAN at spawn. NEVER renumber -- these persist to disk.
+enum EnemyType { SWORDSMAN, TANK, CHARGER, SPITTER }
+
 ## This chunk's grid coordinate (WorldScale.world_to_chunk space).
 var coord: Vector2i = Vector2i.ZERO
 ## The chunk's contents as plain records. Each entry:
@@ -75,4 +83,4 @@ static func from_dict(d: Dictionary) -> ChunkData:
 		})
 	return cd
 
-# Verified against: Godot 4.7.1 (2026-07-17)
+# Verified against: Godot 4.7.1 (2026-07-19)

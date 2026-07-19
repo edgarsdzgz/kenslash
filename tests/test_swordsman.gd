@@ -268,7 +268,7 @@ func _escalation(ctx: TestContext, enemy_scene: PackedScene) -> void:
 	await ctx.tree.physics_frame
 	var cd_full: float = sw.effective_dodge_cooldown()
 	var ci_full: float = sw.effective_combo_interval()
-	sw_health.take_damage(7)   # 10 -> 3 HP: ratio 0.3, below aggression_low_hp 0.4 -> max aggression
+	sw_health.take_damage(sw_health.max_health - 6)   # -> 6 HP: ratio ~0.21 (max_health 28), below aggression_low_hp 0.4 -> max aggression
 	var cd_low: float = sw.effective_dodge_cooldown()
 	var ci_low: float = sw.effective_combo_interval()
 	ctx.check(cd_low < cd_full and ci_low < ci_full,
