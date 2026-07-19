@@ -86,6 +86,7 @@ func run(ctx: TestContext) -> void:
 	var exp_rock: int = 0
 	var exp_enemy: int = 0
 	var exp_bush: int = 0
+	var exp_pebble: int = 0
 	for coord in manager.active_coords():
 		var cd: ChunkData = ChunkGenerator.generate(coord, manager.world_seed)
 		for e in cd.entries:
@@ -94,15 +95,18 @@ func run(ctx: TestContext) -> void:
 				ChunkData.Kind.MINERAL: exp_rock += 1
 				ChunkData.Kind.ENEMY: exp_enemy += 1
 				ChunkData.Kind.BUSH: exp_bush += 1
+				ChunkData.Kind.PEBBLE: exp_pebble += 1
 	var got_tree: int = 0
 	var got_rock: int = 0
 	var got_enemy: int = 0
 	var got_bush: int = 0
+	var got_pebble: int = 0
 	for container in manager.get_children():
 		for child in container.get_children():
 			# Order matters: Rock extends StaticBody2D, so test Rock first; Enemy is a
-			# CharacterBody2D; a Bush is a plain Node2D (no collision -- checked before the
-			# StaticBody2D fallthrough); Tree has no class_name (native-class clash) so it is
+			# CharacterBody2D; a Bush and a Pebble are each a plain Node2D (no collision --
+			# checked before the StaticBody2D fallthrough); Tree has no class_name (native-class
+			# clash) so it is
 			# the remaining StaticBody2D content.
 			if child is Enemy:
 				got_enemy += 1
@@ -110,6 +114,8 @@ func run(ctx: TestContext) -> void:
 				got_rock += 1
 			elif child is Bush:
 				got_bush += 1
+			elif child is Pebble:
+				got_pebble += 1
 			elif child is StaticBody2D:
 				got_tree += 1
 	ctx.check(got_tree == exp_tree and got_tree >= 1,
@@ -124,6 +130,9 @@ func run(ctx: TestContext) -> void:
 	ctx.check(got_bush == exp_bush and got_bush >= 1,
 		"real Bush instances match generated entries and are present (" + str(got_bush) + " == " + str(exp_bush) + ", >=1) -- the E4 BUSH Kind streams like TREE/MINERAL/ENEMY",
 		"Bush instance count wrong (" + str(got_bush) + " vs expected " + str(exp_bush) + ")")
+	ctx.check(got_pebble == exp_pebble and got_pebble >= 1,
+		"real Pebble instances match generated entries and are present (" + str(got_pebble) + " == " + str(exp_pebble) + ", >=1) -- the E4 PEBBLE Kind streams like BUSH",
+		"Pebble instance count wrong (" + str(got_pebble) + " vs expected " + str(exp_pebble) + ")")
 
 	# --- C3a: a mineral instance is CONFIGURED from its entry.state ----------
 	# Drive a synthetic MINERAL entry through the SAME ChunkContent.spawn() the manager

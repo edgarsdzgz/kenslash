@@ -25,6 +25,10 @@ const ENEMY_SCENE: PackedScene = preload("res://enemy/enemy.tscn")
 ## BUSH entry, harvested by the player's Interaction subsystem, freed on harvest -> the
 ## deactivate is_instance_valid path flags its entry `gone`, so a harvested bush never respawns.
 const BUSH_SCENE: PackedScene = preload("res://world/bush.tscn")
+## The forageable pebble scene (E4). Like BUSH, a generated interactable spawned one-per PEBBLE
+## entry, gathered by the player's Interaction subsystem, freed on gather -> the deactivate
+## is_instance_valid path flags its entry `gone`, so a gathered pebble never respawns.
+const PEBBLE_SCENE: PackedScene = preload("res://world/pebble.tscn")
 ## The Drop scene (E3c). Unlike the three above, a DROP entry is never generated -- it is a pure
 ## delta the ChunkManager snapshots from live Drop children on unload (drop_entry, below) and
 ## respawns here on reload, its item re-load()ed by resource_path and its aging RESUMED.
@@ -92,6 +96,10 @@ static func spawn(entry: Dictionary) -> Node2D:
 			# A forageable bush (E4): no per-entry state to configure -- yields are authored on
 			# the scene's exports. Positioned at local_pos by the caller like every other Kind.
 			node = BUSH_SCENE.instantiate()
+		ChunkData.Kind.PEBBLE:
+			# A forageable pebble (E4): like BUSH, no per-entry state -- its single Stone yield is
+			# authored on the scene's exports. Positioned at local_pos by the caller.
+			node = PEBBLE_SCENE.instantiate()
 		_:
 			node = Node2D.new()
 
@@ -142,6 +150,11 @@ static func capture(node: Node, entry: Dictionary) -> bool:
 			# A bush carries NO partial state: it is either intact (still a live node -> nothing to
 			# capture) or harvested (queue_freed -> the ChunkManager's is_instance_valid path flags
 			# the entry `gone`, exactly like a felled tree). So capture is always a no-op here.
+			return false
+		ChunkData.Kind.PEBBLE:
+			# A pebble, like a bush, carries NO partial state: intact (a live node -> nothing to
+			# capture) or gathered (queue_freed -> the ChunkManager's is_instance_valid path flags
+			# the entry `gone`). So capture is always a no-op here too.
 			return false
 		_:
 			return false

@@ -19,7 +19,10 @@ extends RefCounted
 ## remaining lifetime. So drops are cheap serializable DATA when dormant, bounded by the E3b cull.
 ## BUSH (E4) IS generated (a forageable interactable); a harvested bush is queue_freed, so the
 ## deactivate is_instance_valid path flags its entry `gone` (never respawns), like a felled tree.
-enum Kind { TREE, MINERAL, ENEMY, DROP, BUSH }
+## PEBBLE (E4) is likewise generated + forageable (a small stone gathered without a pickaxe); a
+## gathered pebble is queue_freed and flagged `gone` on the same is_instance_valid path as a bush.
+## Appended AFTER BUSH -- existing values are NEVER renumbered (they persist to disk later).
+enum Kind { TREE, MINERAL, ENEMY, DROP, BUSH, PEBBLE }
 
 ## This chunk's grid coordinate (WorldScale.world_to_chunk space).
 var coord: Vector2i = Vector2i.ZERO

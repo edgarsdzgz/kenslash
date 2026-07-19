@@ -20,6 +20,9 @@ const ENEMY_CHANCE: float = 0.35
 ## Forageable bushes per chunk (E4, design-items.md "Interaction 'f'"). randi_range inclusive.
 const BUSH_MIN: int = 1
 const BUSH_MAX: int = 3
+## Forageable pebbles per chunk (E4): small stones gathered without a pickaxe. randi_range inclusive.
+const PEBBLE_MIN: int = 1
+const PEBBLE_MAX: int = 4
 ## Starting integrity baked into a fresh mineral's mutable state.
 const FRESH_MINERAL_INTEGRITY: int = 4
 
@@ -64,6 +67,17 @@ static func generate(coord: Vector2i, world_seed: int) -> ChunkData:
 	for _i in bush_count:
 		cd.entries.append({
 			"type": ChunkData.Kind.BUSH,
+			"local_pos": _rand_local(rng),
+			"state": {},
+		})
+
+	# Pebbles are drawn LAST (E4), AFTER the bush loop: appending here keeps every existing
+	# TREE/MINERAL/ENEMY/BUSH rng draw at the SAME position in the seeded sequence, so their
+	# deterministic counts/positions are byte-unchanged -- only these new draws are consumed.
+	var pebble_count: int = rng.randi_range(PEBBLE_MIN, PEBBLE_MAX)
+	for _i in pebble_count:
+		cd.entries.append({
+			"type": ChunkData.Kind.PEBBLE,
 			"local_pos": _rand_local(rng),
 			"state": {},
 		})
