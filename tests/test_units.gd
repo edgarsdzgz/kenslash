@@ -269,32 +269,33 @@ func _weight_unit_tests(ctx: TestContext) -> void:
 		"starting loadout sword+axe+pickaxe weighs 7.5 (ratio 0.15 -> full-speed, no movement regression)",
 		"starting loadout weight wrong (total=" + str(load_inv.total_weight()) + ")")
 
-	# encumbrance_factor across the decided curve: capacity 10 + stone (1.0 each) so
-	# stone count == ratio*10. ratio 0.5 -> 1.0; 1.0 -> 1.0; 2.0 -> 0.4; 5.0 -> 0.4 (floor).
+	# encumbrance_factor across the GENTLE tier scheme: capacity 10 + stone (1.0 each) so stone
+	# count == ratio*10. Tiers (lower, upper]: ratio 0.5 & 1.0 -> NORMAL 1.0; 2.0 -> OVER 0.75
+	# (2.0 is the OVER upper edge, inclusive); 5.0 -> ULTRA 0.25 (the floored crawl, never lower).
 	var ef_under: Inventory = Inventory.new()
 	ef_under.carry_capacity = 10.0
 	ef_under.add_item(STONE, 5)
-	ctx.check(is_equal_approx(ef_under.encumbrance_factor(), 1.0),
-		"encumbrance_factor: ratio 0.5 (under capacity) -> 1.0 (full speed)",
-		"encumbrance_factor ratio 0.5 wrong (got " + str(ef_under.encumbrance_factor()) + ")")
+	ctx.check(is_equal_approx(ef_under.encumbrance_factor(), 1.0) and ef_under.encumbrance_tier() == Inventory.Encumbrance.NORMAL,
+		"encumbrance_factor: ratio 0.5 (under capacity) -> 1.0 (NORMAL, full speed)",
+		"encumbrance_factor ratio 0.5 wrong (got " + str(ef_under.encumbrance_factor()) + " tier " + str(ef_under.encumbrance_tier()) + ")")
 	var ef_at: Inventory = Inventory.new()
 	ef_at.carry_capacity = 10.0
 	ef_at.add_item(STONE, 10)
-	ctx.check(is_equal_approx(ef_at.encumbrance_factor(), 1.0),
-		"encumbrance_factor: ratio 1.0 (exactly at capacity) -> 1.0 (full speed)",
-		"encumbrance_factor ratio 1.0 wrong (got " + str(ef_at.encumbrance_factor()) + ")")
+	ctx.check(is_equal_approx(ef_at.encumbrance_factor(), 1.0) and ef_at.encumbrance_tier() == Inventory.Encumbrance.NORMAL,
+		"encumbrance_factor: ratio 1.0 (exactly at capacity) -> 1.0 (NORMAL boundary, full speed)",
+		"encumbrance_factor ratio 1.0 wrong (got " + str(ef_at.encumbrance_factor()) + " tier " + str(ef_at.encumbrance_tier()) + ")")
 	var ef_twice: Inventory = Inventory.new()
 	ef_twice.carry_capacity = 10.0
 	ef_twice.add_item(STONE, 20)
-	ctx.check(is_equal_approx(ef_twice.encumbrance_factor(), 0.4),
-		"encumbrance_factor: ratio 2.0 -> 0.4 (reaches the floor)",
-		"encumbrance_factor ratio 2.0 wrong (got " + str(ef_twice.encumbrance_factor()) + ")")
+	ctx.check(is_equal_approx(ef_twice.encumbrance_factor(), 0.75) and ef_twice.encumbrance_tier() == Inventory.Encumbrance.OVER,
+		"encumbrance_factor: ratio 2.0 -> 0.75 (OVER upper boundary, still Overencumbered)",
+		"encumbrance_factor ratio 2.0 wrong (got " + str(ef_twice.encumbrance_factor()) + " tier " + str(ef_twice.encumbrance_tier()) + ")")
 	var ef_far: Inventory = Inventory.new()
 	ef_far.carry_capacity = 10.0
 	ef_far.add_item(STONE, 50)
-	ctx.check(is_equal_approx(ef_far.encumbrance_factor(), 0.4),
-		"encumbrance_factor: ratio 5.0 -> 0.4 (clamped to the floor, never lower)",
-		"encumbrance_factor ratio 5.0 wrong (got " + str(ef_far.encumbrance_factor()) + ")")
+	ctx.check(is_equal_approx(ef_far.encumbrance_factor(), 0.25) and ef_far.encumbrance_tier() == Inventory.Encumbrance.ULTRA,
+		"encumbrance_factor: ratio 5.0 -> 0.25 (ULTRA crawl, never lower)",
+		"encumbrance_factor ratio 5.0 wrong (got " + str(ef_far.encumbrance_factor()) + " tier " + str(ef_far.encumbrance_tier()) + ")")
 
 
 func _chunk_unit_tests(ctx: TestContext) -> void:

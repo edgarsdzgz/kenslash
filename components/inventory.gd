@@ -40,12 +40,30 @@ var hotbar_unlocked: bool = false
 ## data (the player reads it via its `inventory` facade); tunable per save/difficulty later.
 var carry_capacity: float = 50.0
 
-## Encumbrance floor (design-weight.md): the LOWEST speed multiplier over-capacity can impose,
-## so hauling too much slows you but never fully stops you. Reached at ratio 2.0 and beyond.
-const ENCUMBRANCE_FLOOR: float = 0.4
-## Encumbrance slope: how sharply the speed multiplier drops per unit of overage (ratio - 1.0).
-## 0.6 tuned so ratio 2.0 (twice capacity) hits ENCUMBRANCE_FLOOR exactly: 1 - 0.6*(2-1) = 0.4.
-const ENCUMBRANCE_OVER_PENALTY: float = 0.6
+## Encumbrance TIERS (design-weight.md "Over-capacity behavior", GENTLE scheme). Instead of a
+## continuous linear slow-down, the carried/capacity ratio falls into one of four DISCRETE bands,
+## each imposing a flat speed multiplier. Discrete tiers read clearly on the HUD (a named state)
+## and are trivial to persist as a small int. Values are APPEND-ONLY and persistable-safe: NORMAL
+## is 0 and the tiers only ever grow heavier, so a saved tier int never shifts meaning.
+##   NORMAL (0) -- at or under capacity, full speed.
+##   OVER   (1) -- Overencumbered: 1x-2x capacity.
+##   SUPER  (2) -- Superencumbered: 2x-3x capacity.
+##   ULTRA  (3) -- Ultraencumbered: beyond 3x capacity (a crawl, but still moving).
+enum Encumbrance { NORMAL, OVER, SUPER, ULTRA }
+
+## Tier boundary ratios (carried / carry_capacity). Each threshold is the UPPER edge of a tier and
+## is INCLUSIVE of the lighter tier: ratio == 1.0 is still NORMAL, == 2.0 still OVER, == 3.0 still
+## SUPER. So a band is (lower, upper]; only strictly exceeding a threshold drops to the next tier.
+const OVER_THRESHOLD: float = 1.0   ## ratio <= this -> NORMAL (full speed).
+const SUPER_THRESHOLD: float = 2.0  ## OVER spans (1.0, 2.0]; above 2.0 -> SUPER.
+const ULTRA_THRESHOLD: float = 3.0  ## SUPER spans (2.0, 3.0]; above 3.0 -> ULTRA.
+
+## Flat walk-speed multiplier per tier (GENTLE cutoffs). NORMAL is full speed; ULTRA is a floored
+## crawl -- slowed hard but NEVER 0, so an overloaded player can always still stagger to a drop.
+const NORMAL_SPEED: float = 1.0   ## NORMAL: full speed.
+const OVER_SPEED: float = 0.75    ## OVER:  three-quarter speed.
+const SUPER_SPEED: float = 0.50   ## SUPER: half speed.
+const ULTRA_SPEED: float = 0.25   ## ULTRA: quarter speed (a crawl, still moving).
 
 
 ## Leading N slots that are live hotbar slots, capped at the 10-key ring.
@@ -159,15 +177,36 @@ func weight_ratio() -> float:
 	return total_weight() / carry_capacity
 
 
-## Movement speed multiplier from encumbrance (design-weight.md "Over-capacity behavior"). At or
-## under capacity (ratio <= 1.0) -> 1.0 (full speed). Over capacity the multiplier drops LINEARLY
-## with the overage, clamped to ENCUMBRANCE_FLOOR so the player is slowed but never fully stopped:
-## factor = clamp(1 - OVER_PENALTY*(ratio - 1), FLOOR, 1). player.gd multiplies its walk target by
-## this (walking ONLY -- knockback/lunge impulses are never scaled). Kept here so player.gd stays
-## minimal and the whole weight model lives in one place.
-func encumbrance_factor() -> float:
+## The current encumbrance TIER (Encumbrance enum, 0..3) from the carried/capacity ratio. Bands
+## are (lower, upper] -- a threshold ratio belongs to the LIGHTER tier (ratio 1.0 -> NORMAL, 2.0 ->
+## OVER, 3.0 -> SUPER). Pure classification; encumbrance_factor() maps this to a speed multiplier.
+func encumbrance_tier() -> int:
 	var ratio: float = weight_ratio()
-	return clampf(1.0 - ENCUMBRANCE_OVER_PENALTY * (ratio - 1.0), ENCUMBRANCE_FLOOR, 1.0)
+	if ratio <= OVER_THRESHOLD:
+		return Encumbrance.NORMAL
+	if ratio <= SUPER_THRESHOLD:
+		return Encumbrance.OVER
+	if ratio <= ULTRA_THRESHOLD:
+		return Encumbrance.SUPER
+	return Encumbrance.ULTRA
+
+
+## Movement speed multiplier from encumbrance (design-weight.md "Over-capacity behavior", GENTLE
+## scheme). A FLAT multiplier per tier -- NORMAL 1.0, OVER 0.75, SUPER 0.50, ULTRA 0.25 -- so the
+## slow-down steps down in three discrete jumps rather than sliding linearly. Never 0: even ULTRA
+## keeps the player crawling. player.gd multiplies its walk target by this (walking ONLY --
+## knockback/lunge impulses are never scaled). Kept here so player.gd stays minimal and the whole
+## weight model lives in one place.
+func encumbrance_factor() -> float:
+	match encumbrance_tier():
+		Encumbrance.OVER:
+			return OVER_SPEED
+		Encumbrance.SUPER:
+			return SUPER_SPEED
+		Encumbrance.ULTRA:
+			return ULTRA_SPEED
+		_:
+			return NORMAL_SPEED
 
 
 ## DEFERRED this slice, per the user ("if we hit 'sort' we will develop that
@@ -177,4 +216,4 @@ func encumbrance_factor() -> float:
 func sort() -> void:
 	pass
 
-# Verified against: Godot 4.7.1 (2026-07-18)
+# Verified against: Godot 4.7.1 (2026-07-19)

@@ -27,9 +27,19 @@ const ICON_FIT: float = 0.75
 ## (never Time/OS wall-clock) so it advances identically headless.
 const SELECTION_HOLD: float = 2.0
 const SELECTION_FADE: float = 0.4
-## Weight readout tints (design-weight.md "HUD"): normal vs a warning tint applied over capacity.
-const WEIGHT_NORMAL_COLOR: Color = Color(1.0, 1.0, 1.0, 1.0)
-const WEIGHT_OVER_COLOR: Color = Color(1.0, 0.45, 0.4, 1.0)
+## Weight readout tints (design-weight.md "HUD"): one per encumbrance TIER, parallel to
+## Inventory.Encumbrance -- white under capacity, then yellow -> orange -> red as it worsens.
+const WEIGHT_TIER_COLORS: Array[Color] = [
+	Color(1.0, 1.0, 1.0, 1.0),    ## NORMAL -- white (under capacity).
+	Color(1.0, 0.85, 0.3, 1.0),   ## OVER   -- yellow.
+	Color(1.0, 0.6, 0.2, 1.0),    ## SUPER  -- orange.
+	Color(1.0, 0.35, 0.3, 1.0),   ## ULTRA  -- red.
+]
+## Tier NAME appended to the weight readout when encumbered (parallel to the tier enum); NORMAL is "".
+const WEIGHT_TIER_NAMES: Array[String] = ["", "Overencumbered", "Superencumbered", "Ultraencumbered"]
+## Icon rotation for WEAPON (tool blade) hotbar icons only -- 45 degrees, so the blade reads as a
+## canted weapon rather than lying flat. Applied to the POINTS before the bbox-fit so it still fits.
+const TOOL_ICON_ROTATION: float = PI / 4.0
 
 var _player: Player = null
 var _health: HealthComponent = null
@@ -111,12 +121,18 @@ func _refresh() -> void:
 	_refresh_selection()
 
 
-## Carried-weight readout (design-weight.md "HUD"): "Wt <carried> / <capacity>", warning-tinted
-## OVER capacity (weight_ratio() > 1.0). Presentation only -- state reads, no game logic added.
+## Carried-weight readout (design-weight.md "HUD"): "Wt <carried> / <capacity>", and -- when
+## encumbered -- the TIER NAME appended (e.g. "Wt 90 / 50  Overencumbered") with a per-tier warning
+## tint (white -> yellow -> orange -> red). The tier is owned by the Inventory (encumbrance_tier());
+## the HUD only maps int -> name/tint. Presentation only -- state reads, no game logic added.
 func _refresh_weight() -> void:
 	var inv: Inventory = _player.inventory
-	_weight_label.text = "Wt %s / %s" % [_fmt_weight(inv.total_weight()), _fmt_weight(inv.carry_capacity)]
-	_weight_label.modulate = WEIGHT_OVER_COLOR if inv.weight_ratio() > 1.0 else WEIGHT_NORMAL_COLOR
+	var tier: int = inv.encumbrance_tier()
+	var text: String = "Wt %s / %s" % [_fmt_weight(inv.total_weight()), _fmt_weight(inv.carry_capacity)]
+	if tier != Inventory.Encumbrance.NORMAL:
+		text += "  " + WEIGHT_TIER_NAMES[tier]
+	_weight_label.text = text
+	_weight_label.modulate = WEIGHT_TIER_COLORS[tier]
 
 
 ## Trim a weight for display: a whole value reads "10" (not str()'s "10.0"), a fractional one keeps
@@ -219,7 +235,9 @@ func _refresh_hotbar() -> void:
 		# never render on top of each other. No shape -> hide the icon, keep the letter glyph.
 		var icon_src: PackedVector2Array = _icon_shape_for(item)
 		if not icon_src.is_empty():
-			_slot_icons[i].polygon = _fit_polygon(icon_src)
+			# Rotate 45 degrees for WEAPONS only (icon came from a ToolData's blade_shape); a
+			# resource's own icon_shape stays upright.
+			_slot_icons[i].polygon = _fit_polygon(icon_src, _icon_is_tool_blade(item))
 			_slot_icons[i].color = _icon_color(item)
 			_slot_icons[i].visible = true
 			_slot_labels[i].text = ""
@@ -296,24 +314,39 @@ func _icon_shape_for(item: ItemData) -> PackedVector2Array:
 	return PackedVector2Array()
 
 
-## Fill colour for a slot icon: a tool paints in its blade_color (matching the equipped-blade
-## tint), any other item in its own drop `color`.
+## Fill colour for a slot icon: a tool paints in its blade_color, any other item in its drop `color`.
 func _icon_color(item: ItemData) -> Color:
 	if item is ToolData:
 		return (item as ToolData).blade_color
 	return item.color
 
 
-## Normalize an icon outline to fit the slot: measure its bounding box, uniformly scale so the
-## LONGER side spans ICON_FIT * SLOT_SIZE, and recenter the box on the origin (the Polygon2D is
-## positioned at the slot centre). Point COUNT is preserved, so a test can match it against the
-## source shape's size. A degenerate (zero-area) shape is returned unchanged.
-func _fit_polygon(shape: PackedVector2Array) -> PackedVector2Array:
+## Whether the icon drawn for `item` is a WEAPON (tool) BLADE silhouette -- the exact case
+## _icon_shape_for falls back to blade_shape: a ToolData that set NO icon_shape of its own. Only
+## this case is rotated 45 degrees. Mirrors _icon_shape_for's lookup so the two can't drift.
+func _icon_is_tool_blade(item: ItemData) -> bool:
+	return item is ToolData and item.icon_shape.is_empty()
+
+
+## Normalize an icon outline to fit the slot: optionally ROTATE it 45 degrees first (weapons only),
+## then measure its bounding box, uniformly scale so the LONGER side spans ICON_FIT * SLOT_SIZE, and
+## recenter the box on the origin (the Polygon2D sits at the slot centre). Rotating BEFORE the fit
+## keeps a canted blade inside the slot -- a naive Polygon2D.rotation AFTER the fit would swing the
+## corners past the slot edges. Pivot is irrelevant (the bbox recenter cancels it), so we spin about
+## the origin. Point COUNT is preserved. A degenerate (zero-area) shape is returned unchanged.
+func _fit_polygon(shape: PackedVector2Array, rotate: bool = false) -> PackedVector2Array:
+	# Rotate the raw points (weapons only) BEFORE measuring, so the fit boxes the ROTATED
+	# silhouette. Point count is unchanged; each point is just moved.
+	var src: PackedVector2Array = shape
+	if rotate:
+		src = PackedVector2Array()
+		for p in shape:
+			src.append(p.rotated(TOOL_ICON_ROTATION))
 	var min_x: float = INF
 	var min_y: float = INF
 	var max_x: float = -INF
 	var max_y: float = -INF
-	for p in shape:
+	for p in src:
 		min_x = minf(min_x, p.x)
 		max_x = maxf(max_x, p.x)
 		min_y = minf(min_y, p.y)
@@ -324,7 +357,7 @@ func _fit_polygon(shape: PackedVector2Array) -> PackedVector2Array:
 	var scale: float = (SLOT_SIZE.x * ICON_FIT) / span
 	var center: Vector2 = Vector2((min_x + max_x) * 0.5, (min_y + max_y) * 0.5)
 	var out: PackedVector2Array = PackedVector2Array()
-	for p in shape:
+	for p in src:
 		out.append((p - center) * scale)
 	return out
 
@@ -350,9 +383,16 @@ func weight_text() -> String:
 	return _weight_label.text
 
 
-## Whether the weight readout is in its OVER-capacity warning tint -- for the headless HUD test.
+## Whether the weight readout is in ANY over-capacity warning state (tier past NORMAL) -- for the
+## headless HUD test. True once the player is Over/Super/Ultra-encumbered (not the normal white).
 func weight_over() -> bool:
-	return _weight_label.modulate == WEIGHT_OVER_COLOR
+	return _weight_label.modulate != WEIGHT_TIER_COLORS[Inventory.Encumbrance.NORMAL]
+
+
+## The current encumbrance TIER shown by the readout (Inventory.Encumbrance, 0..3), forwarded from
+## the live inventory so the HUD test can assert the tier without parsing the string.
+func weight_tier() -> int:
+	return _player.inventory.encumbrance_tier()
 
 
 ## The item-name selection popup currently SHOWN, or "" once it has faded/hidden. Reads the
