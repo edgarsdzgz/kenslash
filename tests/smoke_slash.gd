@@ -127,8 +127,11 @@ func _run() -> void:
 	# --- Elephant-Tank behaviour: GRAZE/ENRAGED/CALM + telegraphed stomp (self-contained, remote) ---
 	await TestTank.new().run(ctx)
 
+	# --- Swordsman dueler: telegraphed combos + reactive dodge (cooldown+punish) + spacing + escalation ---
+	await TestSwordsman.new().run(ctx)
+
 	if ctx.all_pass:
-		print("[PASS] smoke_slash: combat + combo + death + bodies + input seam + durability + streaming + playable + hud + encumbrance + harvest + pickup + lifetime + drop-persist + forage + pebble + controls + tank -- all passed")
+		print("[PASS] smoke_slash: combat + combo + death + bodies + input seam + durability + streaming + playable + hud + encumbrance + harvest + pickup + lifetime + drop-persist + forage + pebble + controls + tank + swordsman -- all passed")
 		quit(0)
 	else:
 		_fail("one or more assertions failed")

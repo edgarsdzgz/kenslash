@@ -1,6 +1,6 @@
 [gd_scene load_steps=7 format=4]
 
-[ext_resource type="Script" path="res://enemy/enemy.gd" id="1_enemy"]
+[ext_resource type="Script" path="res://enemy/swordsman.gd" id="1_enemy"]
 [ext_resource type="PackedScene" path="res://components/health_component.tscn" id="2_health"]
 [ext_resource type="Script" path="res://components/hurtbox.gd" id="3_hurtbox"]
 [ext_resource type="Script" path="res://components/hitbox.gd" id="4_hitbox"]
@@ -18,9 +18,12 @@ size = Vector2(28, 22)
 collision_layer = 4
 collision_mask = 3
 script = ExtResource("1_enemy")
+move_speed = 95.0
+acceleration = 800.0
+detection_range = 220.0
 
 [node name="Body" type="Polygon2D" parent="."]
-color = Color(1, 0.4, 0.35, 1)
+color = Color(0.72, 0.24, 0.26, 1)
 polygon = PackedVector2Array(-10, -36, 0, -36, 3.83, -34.48, 7.07, -30.14, 9.24, -23.65, 10, -16, 9.24, -8.35, 7.07, -1.86, 3.83, 2.48, 0, 4, -10, 4)
 
 [node name="Face" type="Polygon2D" parent="Body"]
@@ -33,7 +36,7 @@ position = Vector2(0, -6)
 shape = SubResource("RectangleShape2D_body")
 
 [node name="HealthComponent" parent="." instance=ExtResource("2_health")]
-max_health = 6
+max_health = 10
 
 [node name="Hurtbox" type="Area2D" parent="."]
 collision_layer = 16
@@ -57,8 +60,8 @@ collision_mask = 0
 monitoring = false
 monitorable = true
 script = ExtResource("4_hitbox")
-atk = 1
-knockback = 150.0
+atk = 2
+knockback = 180.0
 
 [node name="CollisionShape2D" type="CollisionShape2D" parent="AttackHitbox"]
 position = Vector2(18, 0)
