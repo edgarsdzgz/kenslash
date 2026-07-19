@@ -11,8 +11,11 @@ class_name TestSwordsman extends RefCounted
 ##   b. The reactive dodge EVADES a player swing when off-cooldown: it fires (dodge_count++, i-frames
 ##      up), a hit landing mid-dodge deals 0, and it shifts out of the swing line.
 ##   c. Cooldown + punish: a SECOND swing inside dodge_cooldown is NOT dodged and LANDS.
-##   d. Spacing: it approaches to duel range then HOLDS -- never beelines onto the player.
+##   d. Spacing: it approaches to duel range then HOLDS near it (tightened to duel_range +/- band).
 ##   e. Escalation: a low-HP Swordsman is more aggressive (shorter dodge cooldown + faster combos).
+##   f. Reaction delay: a NON-ZERO dodge_reaction lets an IMMEDIATE hit BEAT the dodge and LAND.
+##   g. Step-in: starting a combo drives the Swordsman TOWARD the player (the gap-closer actually moves).
+##   h. Mix-up: start_combo alternates a committed combo_hits string and a 1-hit JAB (strike count).
 ## Registered in tests/smoke_slash.gd after the Tank module.
 
 const ENEMY_SCENE_PATH: String = "res://enemy/enemy.tscn"
@@ -29,7 +32,10 @@ func run(ctx: TestContext) -> void:
 
 	await _combo_telegraphed(ctx, enemy_scene, player_scene)
 	await _dodge_and_cooldown(ctx, enemy_scene, player_scene)
+	await _reaction_delay_lands(ctx, enemy_scene, player_scene)
 	await _spacing_holds(ctx, enemy_scene, player_scene)
+	await _combo_step_in(ctx, enemy_scene, player_scene)
+	await _mixup_alternates(ctx, enemy_scene, player_scene)
 	await _escalation(ctx, enemy_scene)
 
 
@@ -138,12 +144,118 @@ func _spacing_holds(ctx: TestContext, enemy_scene: PackedScene, player_scene: Pa
 	for _i in range(140):
 		await ctx.tree.physics_frame
 	var dist_after: float = sw.global_position.distance_to(target.global_position)
-	ctx.check(dist_after < 120.0 and dist_after > 22.0,
-		"spacing: approached to duel range and HELD, not onto the player (dist " + str(int(dist_before)) + " -> " + str(int(dist_after)) + ")",
-		"spacing wrong (dist " + str(int(dist_before)) + " -> " + str(int(dist_after)) + "): should close then hold near duel range")
+	# Tightened window: it must SETTLE near duel_range (42) within the hysteresis band (12) plus a
+	# small tolerance -- not merely "somewhere under 120". So ~[42-18, 42+18] = [24, 60], proving it
+	# holds SPACING at the duel ring rather than crowding the player or hanging far out.
+	var lo: float = sw.duel_range - sw.duel_band - 6.0
+	var hi: float = sw.duel_range + sw.duel_band + 6.0
+	ctx.check(dist_after < hi and dist_after > lo,
+		"spacing: approached to duel range and HELD near it (dist " + str(int(dist_before)) + " -> " + str(int(dist_after)) + ", within [" + str(int(lo)) + ", " + str(int(hi)) + "])",
+		"spacing wrong (dist " + str(int(dist_before)) + " -> " + str(int(dist_after)) + "): should close then hold near duel range [" + str(int(lo)) + ", " + str(int(hi)) + "]")
 	sw.queue_free()
 	target.queue_free()
 	await ctx.settle_idle()
+
+
+## f. Reaction-delay fairness lever: with a NON-ZERO dodge_reaction, an IMMEDIATE hit (delivered before
+## the reaction delay elapses) BEATS the dodge and LANDS -- the i-frames are not up yet. This is what
+## removes omniscient dodging (a fast/close/well-timed swing still connects), the counterpart to leg b's
+## zero-reaction evade.
+func _reaction_delay_lands(ctx: TestContext, enemy_scene: PackedScene, player_scene: PackedScene) -> void:
+	var sw: Swordsman = _spawn_swordsman(ctx, enemy_scene, Vector2(53000, 53000))
+	var player: Player = _spawn_player(ctx, player_scene, Vector2(52976, 53000)) as Player  # 24px to the left
+	player.facing = Vector2.RIGHT
+	sw._target = player
+	sw.dodge_reaction = 0.15     # NON-ZERO: the evade waits this long before its i-frames come up
+	sw.combo_interval = 999.0    # never step into an own combo during this leg
+	var sw_health: HealthComponent = sw.get_node("HealthComponent") as HealthComponent
+	var sw_hurtbox: Hurtbox = sw.get_node("Hurtbox") as Hurtbox
+	var sword_hitbox: Hitbox = player.get_node("SwordPivot/Sword") as Hitbox
+	await ctx.tree.physics_frame
+
+	player._attacking = true                 # stub the player's active swing
+	await ctx.tree.physics_frame             # detect -> _run_dodge starts the reaction timer (i-frames NOT up)
+	var reaction_pending: bool = sw._dodge_on_cooldown and not sw._dodging and not sw_hurtbox.dodge_invincible
+	var hp_before: int = sw_health.current_health
+	sw_hurtbox._on_area_entered(sword_hitbox)   # IMMEDIATE hit, before dodge_reaction (0.15s) elapses
+	var landed: bool = sw_health.current_health < hp_before
+	player._attacking = false
+	ctx.check(reaction_pending and landed,
+		"reaction delay: an IMMEDIATE hit BEATS the dodge (i-frames not up during the 0.15s reaction) and LANDS (" + str(hp_before) + " -> " + str(sw_health.current_health) + ")",
+		"reaction-delay lever wrong (reaction_pending=" + str(reaction_pending) + " hp " + str(hp_before) + "->" + str(sw_health.current_health) + ")")
+	sw.queue_free()
+	player.queue_free()
+	await ctx.settle_idle()
+
+
+## g. Gap-closer step-in: when a combo starts, the Swordsman drives TOWARD the player for the step-in
+## window (combo_stepin_time) instead of the friction bleeding its once-set velocity to ~0 -- so it
+## actually CLOSES distance to begin the string ("you can't just back away").
+func _combo_step_in(ctx: TestContext, enemy_scene: PackedScene, player_scene: PackedScene) -> void:
+	var sw: Swordsman = _spawn_swordsman(ctx, enemy_scene, Vector2(58000, 58000))
+	var target: Node2D = _spawn_player(ctx, player_scene, Vector2(58060, 58000))  # 60px to the right
+	sw._target = target
+	sw.combo_windup = 0.3        # stay in the (busy) windup for the whole step-in window
+	sw.combo_interval = 999.0    # only the explicit start_combo below drives it
+	await ctx.tree.physics_frame
+	var dist_before: float = sw.global_position.distance_to(target.global_position)
+	var x_before: float = sw.global_position.x
+	sw.start_combo(1)            # open a combo; do NOT await -- sample the step-in motion
+	for _i in range(10):         # ~0.16s, inside combo_stepin_time (0.18s)
+		await ctx.tree.physics_frame
+	var dist_after: float = sw.global_position.distance_to(target.global_position)
+	var moved_toward: float = sw.global_position.x - x_before
+	ctx.check(sw._combo_active and moved_toward > 6.0 and dist_after < dist_before - 6.0,
+		"combo STEP-IN: the Swordsman drives toward the player when a combo starts (closed " + str(int(dist_before)) + " -> " + str(int(dist_after)) + ", +" + str(int(moved_toward)) + "px), not neutralized by friction",
+		"combo step-in did not close distance (combo_active=" + str(sw._combo_active) + " moved " + str(moved_toward) + " dist " + str(int(dist_before)) + "->" + str(int(dist_after)) + ")")
+	sw.queue_free()
+	target.queue_free()
+	await ctx.settle_idle()
+
+
+## h. Mix-up: start_combo() alternates a committed multi-hit combo (combo_hits) and a fast 1-hit JAB
+## via the deterministic _next_is_jab toggle, so the player cannot pre-commit to one punish. Assert the
+## strike COUNT alternates combo_hits -> 1 across two auto-picked combos.
+func _mixup_alternates(ctx: TestContext, enemy_scene: PackedScene, player_scene: PackedScene) -> void:
+	var sw: Swordsman = _spawn_swordsman(ctx, enemy_scene, Vector2(59000, 59000))
+	var target: Node2D = _spawn_player(ctx, player_scene, Vector2(59060, 59000))
+	sw._target = target
+	sw.combo_windup = 0.05
+	sw.combo_gap = 0.03
+	sw.recovery_time = 0.05
+	sw.attack_duration = 0.05
+	sw.combo_interval = 999.0    # only the explicit start_combo() calls drive it
+	await ctx.tree.physics_frame
+
+	# _next_is_jab starts false -> the first auto pick is the COMMITTED combo (combo_hits), then a JAB.
+	sw.start_combo(-1)
+	var first_strikes: int = await _count_combo_strikes(ctx, sw)
+	for _i in range(4):
+		await ctx.tree.physics_frame        # let it settle between strings
+	sw.start_combo(-1)
+	var second_strikes: int = await _count_combo_strikes(ctx, sw)
+	ctx.check(first_strikes == sw.combo_hits and second_strikes == 1,
+		"mix-up: start_combo alternates a committed " + str(sw.combo_hits) + "-hit combo then a 1-hit JAB (strikes " + str(first_strikes) + " then " + str(second_strikes) + ")",
+		"mix-up alternation wrong (first " + str(first_strikes) + " expected " + str(sw.combo_hits) + ", second " + str(second_strikes) + " expected 1)")
+	sw.queue_free()
+	target.queue_free()
+	await ctx.settle_idle()
+
+
+## Count the STRIKES (live-hitbox rising edges) in the currently-running combo, stepping physics frames
+## until the combo clears. Used by the mix-up leg to distinguish a JAB (1) from a committed combo.
+func _count_combo_strikes(ctx: TestContext, sw: Swordsman) -> int:
+	var strikes: int = 0
+	var was_live: bool = false
+	for _i in range(300):
+		await ctx.tree.physics_frame
+		var live: bool = not sw._attack_shape.disabled
+		if live and not was_live:
+			strikes += 1
+		was_live = live
+		if not sw._combo_active:
+			break
+	return strikes
 
 
 ## e. Escalation: at low HP the Swordsman is more aggressive -- a shorter effective dodge cooldown AND

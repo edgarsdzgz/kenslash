@@ -86,7 +86,7 @@ func simulate(delta: float, input: FrameInput, facing: Vector2) -> bool:
 	if _dodging:
 		return _tick_dash(delta)
 
-	if input.dodge and not _dodging and _dodge_cooldown_left <= 0.0 and _stamina.current >= _stamina.dodge_cost:
+	if input.dodge and _dodge_cooldown_left <= 0.0 and _stamina.current >= _stamina.dodge_cost:
 		_start_dash(input, facing)
 		return true
 

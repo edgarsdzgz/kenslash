@@ -168,8 +168,12 @@ func _on_combo_reset() -> void:
 func cancel_swing() -> void:
 	if _swing_tween != null and _swing_tween.is_valid():
 		_swing_tween.kill()
+	# Tween.kill() does NOT emit `finished`, so the attack() coroutine suspended on
+	# `await _swing_tween.finished` never resumes and would leave _attacking latched true. Clear it
+	# HERE so the combat state is always consistent after a cancel, regardless of the leaked coroutine.
+	_attacking = false
 	_blade.visible = false
 	if is_instance_valid(_sword_shape):
 		_sword_shape.disabled = true
 
-# Verified against: Godot 4.7.1 (2026-07-18)
+# Verified against: Godot 4.7.1 (2026-07-19)

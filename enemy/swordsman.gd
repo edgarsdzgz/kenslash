@@ -60,6 +60,10 @@ extends Enemy
 @export var combo_windup: float = 0.22
 ## The vulnerable PUNISH WINDOW after a combo, in seconds: no dodge, no attack (design decision).
 @export var recovery_time: float = 0.6
+## Seconds the gap-closer step-in velocity is MAINTAINED at the start of a combo (skipping the
+## friction bleed in _physics_process), so the Swordsman actually CLOSES distance to start the
+## string instead of the once-set velocity dying to ~0 within the first windup. Tunable.
+@export var combo_stepin_time: float = 0.18
 
 ## --- Reactive-dodge knobs (DECIDED: cooldown + punish window) ------------------------------
 ## Minimum seconds between dodges: a second swing inside this window is NOT dodged and LANDS.
@@ -105,6 +109,11 @@ var _strafe_elapsed: float = 0.0
 ## Mix-up toggle: alternates a fast 1-hit JAB and a committed multi-hit combo so the player cannot
 ## pre-commit to one punish. Deterministic (a toggle, not RNG) so the headless suite stays stable.
 var _next_is_jab: bool = false
+## Seconds left in the combo step-in window; while > 0 (and mid-combo) _physics_process drives the
+## step-in velocity instead of bleeding to a stop, so the gap-closer actually moves. Set on start_combo.
+var _stepin_left: float = 0.0
+## Locked step-in bearing (toward the target at combo start); paired with _stepin_left.
+var _stepin_dir: Vector2 = Vector2.RIGHT
 
 
 ## Per-frame dueling AI. Fully replaces the base chaser loop. Honors the same `stationary` pin as the
@@ -147,6 +156,12 @@ func _physics_process(delta: float) -> void:
 	if _dodging:
 		# The evade burst owns movement while it runs (the coroutine clears _dodging when done).
 		_move_velocity = _dodge_dir * dodge_speed
+	elif _combo_active and _stepin_left > 0.0:
+		# Gap-closer step-in: for its short window drive the LOCKED step-in velocity (skipping the
+		# _busy() friction bleed below) so a starting combo actually CLOSES distance instead of the
+		# once-set velocity dying to ~0 before the first windup ends ("you can't just back away").
+		_stepin_left -= delta
+		_move_velocity = _stepin_dir * move_speed
 	elif _busy():
 		# Committed to an own action (combo strike / recovery) -- hold position, bleed to a stop.
 		_move_velocity = _move_velocity.move_toward(Vector2.ZERO, friction * delta)
@@ -196,12 +211,17 @@ func start_combo(hits: int = -1) -> void:
 		hits = 1 if _next_is_jab else combo_hits
 		_next_is_jab = not _next_is_jab
 	_combo_active = true
-	# Small gap-closer step-in as the string opens (a brief nudge toward the target), so a combo
-	# starts on top of the player rather than at max reach.
+	# Gap-closer step-in as the string opens: lock a bearing toward the target and MAINTAIN it for
+	# combo_stepin_time (see _physics_process), so a combo starts on top of the player rather than at
+	# max reach. Setting the velocity once is not enough -- friction bleeds it to ~0 within ~0.12s
+	# (< combo_windup), so the step-in barely moved; the maintained window is the actual fix.
+	_stepin_left = 0.0
 	if _target != null and is_instance_valid(_target):
 		var to_t: Vector2 = _target.global_position - global_position
 		if to_t.length() > 0.001:
-			_move_velocity = to_t.normalized() * move_speed
+			_stepin_dir = to_t.normalized()
+			_stepin_left = combo_stepin_time
+			_move_velocity = _stepin_dir * move_speed
 
 	for i in range(hits):
 		if not is_instance_valid(self) or is_dead:

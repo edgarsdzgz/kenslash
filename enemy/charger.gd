@@ -106,7 +106,12 @@ func _physics_process(delta: float) -> void:
 	match _charger_state:
 		ChargerState.TRACK:
 			# Slow walk toward the player; commit to a dash once inside the engage ring (but not point-blank).
-			if dist <= charge_range and dist >= charge_min_range:
+			if dist < charge_min_range:
+				# Point-blank dead-zone fix: a player hugging the Charger would otherwise make it nuzzle
+				# forever (walk toward, never wind up). BACK AWAY (opposite the target) to re-open
+				# charge_range so it re-gains dash room -- there is no no-counterplay hug spot.
+				_move_velocity = _move_velocity.move_toward(-_facing * move_speed, acceleration * delta)
+			elif dist <= charge_range:
 				_enter_windup()
 			else:
 				_move_velocity = _move_velocity.move_toward(_facing * move_speed, acceleration * delta)

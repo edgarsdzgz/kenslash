@@ -114,13 +114,26 @@ static func spawn(entry: Dictionary) -> Node2D:
 ##   * MINERAL -> entry.state.integrity = the rock's Material.current_durability; a rock at 0
 ##     integrity (mined out but not yet freed) flags the entry `gone` instead (never respawns).
 ##   * ENEMY   -> entry.state.hp = the HealthComponent.current_health; hp <= 0 flags `gone`.
-##   * TREE    -> intact trees carry no partial state; nothing to capture (a felled tree is
-##     freed, so the ChunkManager's is_instance_valid() path flags it `gone`, not this).
+##   * TREE    -> an INTACT tree carries no partial state (nothing to capture). But a FELLED tree
+##     stays a VALID, un-queued node for ~1s (fall + break-blink + linger, world/tree.gd) before it
+##     frees; if its chunk unloads in THAT window it is still is_instance_valid, so this capture runs
+##     while its Material.current_durability is already 0 -- flag the entry `gone` (mirrors the
+##     MINERAL 0 path), else the tree would RESPAWN INTACT on reload. A fully-freed tree never
+##     reaches here (the ChunkManager's is_instance_valid() path flags it `gone` instead).
 static func capture(node: Node, entry: Dictionary) -> bool:
 	var kind: int = int(entry["type"])
 	var state: Dictionary = entry["state"]
 
 	match kind:
+		ChunkData.Kind.TREE:
+			# A felled-but-not-yet-freed tree (chunk unloaded mid-fall): its Material durability is
+			# already 0, so flag the entry `gone` -- it must never respawn. An intact tree (durability
+			# > 0) has no partial state to persist, so nothing to capture (return false).
+			var t_mat: DurabilityComponent = node.get_node("Material") as DurabilityComponent
+			if t_mat.current_durability <= 0:
+				state["gone"] = true
+				return true
+			return false
 		ChunkData.Kind.MINERAL:
 			var mat: DurabilityComponent = node.get_node("Material") as DurabilityComponent
 			var integrity: int = mat.current_durability
@@ -178,4 +191,4 @@ static func drop_entry(drop: Drop) -> Dictionary:
 		},
 	}
 
-# Verified against: Godot 4.7.1 (2026-07-18)
+# Verified against: Godot 4.7.1 (2026-07-19)

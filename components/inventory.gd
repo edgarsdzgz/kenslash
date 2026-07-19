@@ -7,7 +7,7 @@ extends RefCounted
 ##
 ## Each slot holds an ItemStack (item + count) or null=empty (E1b, design-items.md).
 ## A stack's item can be ANY ItemData -- a ToolData (non-stackable, max_stack 1) or a
-## resource (Wood/Stone, max_stack 64). add_item() merges into matching stacks up to
+## resource (Wood/Stone, max_stack 255). add_item() merges into matching stacks up to
 ## max_stack, then spills into empty slots, returning any overflow. Only a ToolData in
 ## the EQUIPPED slot arms the blade; a resource stack (or empty slot) -> unarmed.
 ##

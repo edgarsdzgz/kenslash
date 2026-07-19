@@ -354,6 +354,47 @@ func run(ctx: TestContext) -> void:
 		"C3b killed-enemy-stays-gone: a killed enemy does NOT respawn on reload (entry marked gone via hp<=0 capture)",
 		"a killed enemy reappeared on reload")
 
+
+	# --- Felled tree unloaded MID-FALL stays gone (never respawns intact) -----
+	# A felled tree stays a VALID, un-queued node for ~1s (fall + break-blink + linger, world/tree.gd)
+	# before it frees. Fell a tree (drive its Material to 0 -> the fall begins) and unload its chunk
+	# WHILE the tree is still that valid mid-fall node. capture() must flag the entry `gone` from the
+	# tree's 0 durability (mirroring the mined-rock 0 path); on reload NO tree respawns there. Without
+	# the TREE capture case a mid-fall unload would persist NOTHING and the tree would respawn INTACT.
+	var t_focus: Vector2i = _find_tree_chunk(seed_b, m_focus)
+	ctx.check(t_focus.x != _SCAN_MISS,
+		"C3b setup: found a chunk with >= 1 tree at " + str(t_focus) + " (seed " + str(seed_b) + ")",
+		"could not find a tree chunk to test mid-fall persistence")
+	dmover.global_position = WorldScale.chunk_origin(t_focus) + Vector2(20, 20)
+	await ctx.tree.physics_frame
+	await ctx.tree.physics_frame
+	var t_container: Node2D = dm.active_container(t_focus)
+	var trees_before: int = _trees_in(t_container).size()
+	var tree_node: Node2D = _first_tree_in(t_container)
+	var felled_ok: bool = tree_node != null
+	if tree_node != null:
+		# Fell it: wear the Material to 0 -> _on_broke -> _fall_break_and_free (a ~1s tween). Do NOT wait
+		# for the free; unload immediately so the still-valid mid-fall node is what capture() sees.
+		var t_mat: DurabilityComponent = tree_node.get_node("Material") as DurabilityComponent
+		t_mat.wear(t_mat.current_durability)   # -> 0 -> felled, mid-fall begins
+	# Confirm it is still a VALID, un-queued node (mid-fall, BEFORE queue_free) -- the whole point.
+	var still_mid_fall: bool = tree_node != null and is_instance_valid(tree_node) and not tree_node.is_queued_for_deletion()
+	# Hop away NOW so t_focus deactivates while the tree is mid-fall (write-back captures it), then back.
+	dmover.global_position = WorldScale.chunk_origin(t_focus + Vector2i(20, 20)) + Vector2(20, 20)
+	await ctx.tree.physics_frame
+	await ctx.tree.physics_frame
+	var t_entry_gone: bool = _tree_entry_gone(dm.stored_data(t_focus))
+	dmover.global_position = WorldScale.chunk_origin(t_focus) + Vector2(20, 20)
+	await ctx.tree.physics_frame
+	await ctx.tree.physics_frame
+	var trees_after: int = _trees_in(dm.active_container(t_focus)).size()
+	ctx.check(felled_ok and still_mid_fall and t_entry_gone,
+		"C3b felled-tree-mid-fall: a tree felled then unloaded MID-FALL (still a valid, un-queued node) is flagged gone in the store -- not left to respawn intact",
+		"mid-fall felled tree was not flagged gone (felled=" + str(felled_ok) + " mid_fall=" + str(still_mid_fall) + " gone=" + str(t_entry_gone) + ")")
+	ctx.check(trees_after == trees_before - 1,
+		"C3b felled-tree-stays-gone: the felled tree did NOT respawn on reload (trees " + str(trees_before) + " -> " + str(trees_after) + "; entry gone + skipped)",
+		"a felled-mid-fall tree respawned on reload (trees " + str(trees_before) + " -> " + str(trees_after) + ")")
+
 	# --- Store is DATA, not nodes --------------------------------------------
 	# After roaming several chunks and returning, the LIVE active set is still the bounded 9;
 	# meanwhile _store retains ChunkData for every visited coord (incl. the mutated focuses) as
@@ -431,4 +472,49 @@ func _count_content_roots(manager: ChunkManager) -> int:
 		total += container.get_child_count()
 	return total
 
-# Verified against: Godot 4.7.1 (2026-07-18)
+
+## Scan a bounded coord window for a chunk whose deterministic baseline has >= 1 TREE entry, at
+## Chebyshev distance >= 2 from `avoid` (so it does not co-activate with the mineral focus). Returns
+## its coord, or the _SCAN_MISS sentinel. Deterministic given the seed.
+func _find_tree_chunk(seed_val: int, avoid: Vector2i) -> Vector2i:
+	for cx in range(0, 40):
+		for cy in range(0, 40):
+			var c: Vector2i = Vector2i(cx, cy)
+			if avoid.x != _SCAN_MISS and maxi(absi(c.x - avoid.x), absi(c.y - avoid.y)) < 2:
+				continue
+			var cd: ChunkData = ChunkGenerator.generate(c, seed_val)
+			for e in cd.entries:
+				if int(e["type"]) == ChunkData.Kind.TREE:
+					return c
+	return Vector2i(_SCAN_MISS, _SCAN_MISS)
+
+
+## The live Tree instances directly under a chunk container. A Tree has no class_name (native-class
+## clash), so it is the StaticBody2D content that is NOT a Rock (the only other StaticBody2D Kind).
+func _trees_in(container: Node2D) -> Array:
+	var out: Array = []
+	if container == null:
+		return out
+	for child in container.get_children():
+		if child is StaticBody2D and not (child is Rock):
+			out.append(child)
+	return out
+
+
+## The first live Tree node under a chunk container, or null. Index-aligned to the first TREE entry
+## (spawn order preserves entry order), so it pairs with _tree_entry_gone's first-tree check.
+func _first_tree_in(container: Node2D) -> Node2D:
+	var t: Array = _trees_in(container)
+	return t[0] as Node2D if t.size() > 0 else null
+
+
+## True iff the stored ChunkData has a TREE entry flagged `gone` (the mid-fall write-back result).
+func _tree_entry_gone(data: ChunkData) -> bool:
+	if data == null:
+		return false
+	for e in data.entries:
+		if int(e["type"]) == ChunkData.Kind.TREE and bool((e["state"] as Dictionary).get("gone", false)):
+			return true
+	return false
+
+# Verified against: Godot 4.7.1 (2026-07-19)

@@ -6,6 +6,8 @@ class_name TestCharger extends RefCounted
 ## contact hits are delivered by calling a Hurtbox's _on_area_entered directly (the SAME deterministic
 ## pattern the Tank/Swordsman legs and tests/test_controls.gd use). Legs:
 ##   a. TRACK: a target in range is APPROACHED at a slow walk, then it commits to WINDUP.
+##   a2. Point-blank counter-play: a target INSIDE charge_min_range is BACKED AWAY FROM / wound up on,
+##       never nuzzled forever (the no-counterplay dead zone is closed).
 ##   b. WINDUP is TELEGRAPHED: _telegraphing with a COLD (disabled) hitbox, NO damage during the tell,
 ##      and the charge direction is LOCKED toward the player's position at windup start.
 ##   c. CHARGE: it dashes in a STRAIGHT line and OVERSHOOTS past the player's start position; the hitbox
@@ -27,6 +29,7 @@ func run(ctx: TestContext) -> void:
 		return
 
 	await _track_approaches_then_windup(ctx, charger_scene, player_scene)
+	await _pointblank_backs_off(ctx, charger_scene, player_scene)
 	await _windup_telegraphed_and_locked(ctx, charger_scene, player_scene)
 	await _charge_overshoots_and_hits(ctx, charger_scene, player_scene)
 	await _recover_then_track(ctx, charger_scene, player_scene)
@@ -50,6 +53,35 @@ func _track_approaches_then_windup(ctx: TestContext, charger_scene: PackedScene,
 	ctx.check(reached_windup and dist_at_windup < dist_before - 2.0 and dist_at_windup <= charger.charge_range + 2.0,
 		"TRACK approaches a target at a slow walk then commits to WINDUP (dist " + str(int(dist_before)) + " -> " + str(int(dist_at_windup)) + ")",
 		"TRACK did not approach + wind up (reached_windup=" + str(reached_windup) + " dist " + str(int(dist_before)) + " -> " + str(int(dist_at_windup)) + ")")
+	charger.queue_free()
+	target.queue_free()
+	await ctx.settle_idle()
+
+
+## a2. Point-blank counter-play: a target INSIDE charge_min_range is NOT nuzzled forever. The Charger
+## BACKS AWAY (opposite the target) to re-open charge_range -- then can commit to a WINDUP -- instead of
+## walking toward the player and never winding up (the old no-counterplay dead zone).
+func _pointblank_backs_off(ctx: TestContext, charger_scene: PackedScene, player_scene: PackedScene) -> void:
+	var charger: Charger = _spawn_charger(ctx, charger_scene, Vector2(68000, 68000))
+	var target: Node2D = _spawn_player(ctx, player_scene, Vector2(68012, 68000))  # 12px << charge_min_range 26
+	charger._target = target
+	await ctx.tree.physics_frame
+	var dist_start: float = charger.global_position.distance_to(target.global_position)
+	var backed_off: bool = false
+	var wound_up: bool = false
+	var max_dist: float = dist_start
+	for _i in range(60):
+		await ctx.tree.physics_frame
+		var d: float = charger.global_position.distance_to(target.global_position)
+		max_dist = maxf(max_dist, d)
+		if d > charger.charge_min_range + 5.0:
+			backed_off = true
+		if charger._charger_state == Charger.ChargerState.WINDUP or charger._charger_state == Charger.ChargerState.CHARGE:
+			wound_up = true
+			break
+	ctx.check(dist_start < charger.charge_min_range and (backed_off or wound_up),
+		"point-blank counter-play: from inside charge_min_range the Charger backs off / winds up, not nuzzles (dist " + str(int(dist_start)) + " -> max " + str(int(max_dist)) + ", state " + str(charger._charger_state) + ")",
+		"point-blank dead zone: the Charger just closed onto the player (dist " + str(int(dist_start)) + " max " + str(int(max_dist)) + " state " + str(charger._charger_state) + ")")
 	charger.queue_free()
 	target.queue_free()
 	await ctx.settle_idle()
@@ -142,9 +174,9 @@ func _charge_overshoots_and_hits(ctx: TestContext, charger_scene: PackedScene, p
 		"CHARGE dashes STRAIGHT and OVERSHOOTS past the player's start (x " + str(int(player_start_x)) + " -> ended " + str(int(end_x)) + ", dy " + str(snappedf(end_y - start_y, 0.1)) + ")",
 		"charge did not overshoot straight (end_x " + str(int(end_x)) + " vs player_start_x " + str(int(player_start_x)) + " dy " + str(end_y - start_y) + ")")
 	var damage_dealt: int = hp_before - target_health.current_health
-	ctx.check(damage_dealt >= 5 and hit_knockback[0] > 0.0,
-		"the live dash deals its big damage (" + str(damage_dealt) + " HP) + big knockback (impulse " + str(int(hit_knockback[0])) + ")",
-		"the dash contact dealt no big damage/knockback (dealt " + str(damage_dealt) + " impulse " + str(hit_knockback[0]) + ")")
+	ctx.check(damage_dealt >= 5 and hit_knockback[0] >= 500.0,
+		"the live dash deals its big damage (" + str(damage_dealt) + " HP) + big knockback (impulse " + str(int(hit_knockback[0])) + " >= 500, the authored ~720 dash impulse)",
+		"the dash contact dealt no big damage/heavy knockback (dealt " + str(damage_dealt) + " impulse " + str(hit_knockback[0]) + ", expected impulse >= 500)")
 	charger.queue_free()
 	target.queue_free()
 	await ctx.settle_idle()

@@ -130,9 +130,9 @@ func _stomp_telegraphed(ctx: TestContext, tank_scene: PackedScene, player_scene:
 	ctx.check(target_health.current_health < hp_before,
 		"the stomp LANDED brutal damage when it struck (" + str(hp_before) + " -> " + str(target_health.current_health) + ")",
 		"the stomp dealt no damage (" + str(hp_before) + " -> " + str(target_health.current_health) + ")")
-	ctx.check(hit_knockback[0] > 0.0,
-		"the stomp LAUNCHED the target with huge knockback (impulse " + str(int(hit_knockback[0])) + ")",
-		"the stomp applied no knockback (impulse " + str(hit_knockback[0]) + ")")
+	ctx.check(hit_knockback[0] >= 500.0,
+		"the stomp LAUNCHED the target with huge knockback (impulse " + str(int(hit_knockback[0])) + " >= 500, the authored ~620 stomp impulse)",
+		"the stomp knockback was not the authored heavy impulse (impulse " + str(hit_knockback[0]) + ", expected >= 500)")
 	tank.queue_free()
 	target.queue_free()
 	await ctx.settle_idle()

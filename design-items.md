@@ -8,7 +8,7 @@ pickup, 5-min item despawn, items saved with chunks), Stardew (magnetic debris p
 
 ## Item model (generalizes the tool-only inventory)
 
-- `ItemData` (base Resource): `display_name`, `max_stack` (1 for tools, e.g. 64 for
+- `ItemData` (base Resource): `display_name`, `max_stack` (1 for tools, 255 for
   resources), a short `glyph`/icon-later, category. `ToolData` EXTENDS `ItemData`
   (adds atk/power/break_threshold/wear_max/harvest_type/blade_color).
 - `ItemStack`: `{ item: ItemData, count: int }` -- what an inventory slot holds now.
@@ -18,7 +18,7 @@ pickup, 5-min item despawn, items saved with chunks), Stardew (magnetic debris p
   overflow. Tools auto-populate the hotbar front; resources land in the background
   (the `sort()` intent from design-inventory.md). EQUIP: only a `ToolData` equips as a
   weapon; a resource stack or empty slot -> unarmed.
-- Resource items as `.tres`: Wood (from trees), Stone / ore (from minerals). max_stack ~64.
+- Resource items as `.tres`: Wood (from trees), Stone / ore (from minerals). max_stack 255.
 
 ## Harvest yield (hook the EXISTING harvest chokepoint)
 
