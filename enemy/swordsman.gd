@@ -116,38 +116,15 @@ var _stepin_left: float = 0.0
 var _stepin_dir: Vector2 = Vector2.RIGHT
 
 
-## Per-frame dueling AI. Fully replaces the base chaser loop. Honors the same `stationary` pin as the
-## base (identical hold-position + knockback-bleed early-out) so a pinned Swordsman is a passive
-## stand-in target for the flesh-damage legs -- NO dodge, NO combo while pinned.
+## Per-frame dueling AI. The shared _sense() preamble (base) runs the dead / stationary-pin / no-target
+## early-outs and the facing + Avatar pass (a circling dueler still watches you); this supplies only the
+## spacing + dodge/combo machine on top. The stationary pin is honored by _sense, so a pinned Swordsman
+## is a passive stand-in target for the flesh-damage legs -- NO dodge, NO combo while pinned.
 func _physics_process(delta: float) -> void:
-	if is_dead:
+	var sense: Dictionary = _sense(delta)
+	if not sense["act"]:
 		return
-
-	if stationary:
-		# Passive pinned target (flesh-damage legs): hold position, bleed knockback only. No facing,
-		# no dueling, no dodge/combo -- so hits land for their exact tool damage.
-		_move_velocity = _move_velocity.move_toward(Vector2.ZERO, friction * delta)
-		_apply_motion(delta)
-		return
-
-	_resolve_target()
-	if _target == null:
-		# No player in the tree (a streamed Swordsman with none, or a freed target): coast, idle.
-		_move_velocity = _move_velocity.move_toward(Vector2.ZERO, friction * delta)
-		_apply_motion(delta)
-		return
-
-	var to_target: Vector2 = _target.global_position - global_position
-	var dist: float = to_target.length()
-	if dist > 0.001:
-		_facing = to_target / dist
-	if _facing.x > 0.0:
-		_side_facing = 1
-	elif _facing.x < 0.0:
-		_side_facing = -1
-	# The four-facing look tracks in every state (a circling dueler still watches you) -- same rule as
-	# the base chaser and the Tank.
-	_avatar.update(_facing, _side_facing)
+	var dist: float = sense["dist"]
 
 	# Reactive dodge FIRST: an incoming swing is answered before any movement decision this frame.
 	if should_dodge():

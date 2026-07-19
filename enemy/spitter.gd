@@ -78,36 +78,15 @@ var _strafe_dir: int = 1
 var _aiming: bool = false
 
 
-## Per-frame kiting/firing AI. Fully replaces the base chaser loop with the REPOSITION/AIM/FIRE machine.
-## Honors the same `stationary` pin as the base (identical hold-position + knockback-bleed early-out).
+## Per-frame kiting/firing AI. The shared _sense() preamble (base) runs the dead / stationary-pin /
+## no-target early-outs and the facing + Avatar pass; this supplies only the REPOSITION/AIM/FIRE machine
+## on top. The stationary pin is honored by _sense (identical hold-position + knockback-bleed); the
+## reset-to-REPOSITION-when-the-target-vanishes seam lives in the _on_no_target() override below.
 func _physics_process(delta: float) -> void:
-	if is_dead:
+	var sense: Dictionary = _sense(delta)
+	if not sense["act"]:
 		return
-
-	if stationary:
-		# Pinned passive target: hold position, bleed knockback only. No kiting / aiming / firing.
-		_move_velocity = _move_velocity.move_toward(Vector2.ZERO, friction * delta)
-		_apply_motion(delta)
-		return
-
-	_resolve_target()
-	if _target == null:
-		# No player in the tree (freed/absent): coast to a stop, hold REPOSITION.
-		_move_velocity = _move_velocity.move_toward(Vector2.ZERO, friction * delta)
-		_spitter_state = SpitterState.REPOSITION
-		_apply_motion(delta)
-		return
-
-	var to_target: Vector2 = _target.global_position - global_position
-	var dist: float = to_target.length()
-	if dist > 0.001:
-		_facing = to_target / dist
-	if _facing.x > 0.0:
-		_side_facing = 1
-	elif _facing.x < 0.0:
-		_side_facing = -1
-	# The four-facing look tracks every state -- same rule as the base chaser and the other types.
-	_avatar.update(_facing, _side_facing)
+	var dist: float = sense["dist"]
 
 	match _spitter_state:
 		SpitterState.REPOSITION:
@@ -142,6 +121,12 @@ func _do_kiting(dist: float, delta: float) -> void:
 		var perp: Vector2 = Vector2(-_facing.y, _facing.x) * float(_strafe_dir)
 		target_vel = perp * move_speed * strafe_speed_frac  # in the band: STRAFE / circle
 	_move_velocity = _move_velocity.move_toward(target_vel, acceleration * delta)
+
+
+## Base _sense() seam: reset to REPOSITION the frame the target goes null, so a reappearing player is
+## kited fresh rather than resumed mid-aim (verbatim the old no-target branch).
+func _on_no_target() -> void:
+	_spitter_state = SpitterState.REPOSITION
 
 
 ## REPOSITION -> AIM: STOP and start the readable aim tell (fire-and-forget flash; the FSM timer owns the

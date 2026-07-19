@@ -1,16 +1,16 @@
 class_name Enemy
 extends CharacterBody2D
-## A melee enemy that hunts the player. A three-state machine (IDLE -> CHASE ->
-## ATTACK) drives it: idle until the player is seen, chase until in reach, then
-## stop and swing a time-windowed attack hitbox on a cooldown. It still carries a
-## HealthComponent + Hurtbox (it takes the player's slash) and dies at 0 HP.
+## Shared BASE scaffold for every enemy TYPE (Tank / Swordsman / Charger / Spitter). NOT a self-
+## driving chaser: it has NO _physics_process of its own -- each subclass supplies its own per-type
+## FSM and opens that loop with the shared _sense() preamble below. What lives here is the tech every
+## type reuses: a HealthComponent + Hurtbox (it takes the player's slash and dies at 0 HP), controlled
+## movement + decaying knockback (_apply_motion), the four-facing Avatar, target resolution
+## (_resolve_target), the SENSE preamble (_sense / _sense_facing / _on_no_target), a directly-callable
+## attack() swing, the telegraph_windup() wind-up, and the tick_deaggro() de-aggro clock.
 ##
-## The state machine is an enum+match in this one script, which state-machines.md
-## calls right-sized for 3-4 simple states. Upgrade path when more enemy types
-## arrive with per-state enter/exit hooks or exported per-state tuning: refactor
-## to the node-based FSM (StateMachine node + one State child per state).
-
-enum State { IDLE, CHASE, ATTACK }
+## No scene scripts this base directly -- enemy.tscn/dummy.tscn/charger.tscn/spitter.tscn each run a
+## SUBCLASS -- so it is a pure scaffold: shared @exports + shared helpers, no top-level behaviour of
+## its own. Subclasses extend it (see enemy/tank.gd, swordsman.gd, charger.gd, spitter.gd).
 
 ## Shared telegraph tint (design-enemies.md "Telegraph -> strike"): the readable amber warning
 ## an attack pulses on its Body during a wind-up, before its hitbox goes live. Amber so it reads
@@ -46,8 +46,7 @@ const TELEGRAPH_COLOR: Color = Color(1.0, 0.75, 0.15, 1.0)
 @export var flesh_def: int = 1
 @export var flesh_hardness: int = 2
 ## Shared aggro knobs (design-enemies.md "Aggro / provoke states") -- the fairness backbone reused
-## by every PASSIVE enemy type (the Tank now; Charger/Spitter later). The IDLE/CHASE/ATTACK chaser
-## predates the passive model and leaves them unused, so setting them here is inert for enemy.tscn.
+## by every telegraphed enemy type (the Tank's stomp, the Charger's dash wind-up, the Spitter's aim).
 ## Seconds of readable wind-up a telegraphed strike plays before its hitbox goes live.
 @export var telegraph_time: float = 0.9
 ## Seconds a provoked passive type stays hostile with NO new hit AND the target out of leash range
@@ -60,7 +59,6 @@ var is_dead: bool = false
 ## Latched once the death sequence starts, so a second `died` cannot re-trigger it.
 var _dying: bool = false
 
-var _state: State = State.IDLE
 ## Last direction toward the target; aims the attack hitbox like the sword. Full
 ## 8-directional -- unaffected by the body-facing rule below.
 var _facing: Vector2 = Vector2.RIGHT
@@ -123,34 +121,46 @@ func _ready() -> void:
 		_armor.broke.connect(_on_armor_broke)
 
 
-func _physics_process(delta: float) -> void:
+## --- Shared per-frame SENSE preamble (design-enemies.md) -------------------------------------
+## The verbatim head every subclass's _physics_process used to open with, extracted here ONCE so each
+## TYPE writes only its own FSM. Runs the three shared early-outs -- dead / stationary pin / no target
+## -- and, when a target IS present, refreshes _facing + _side_facing + the four-facing Avatar.
+## Returns a small dictionary the caller reads:
+##   {"act": false}              -> an early-out already handled this frame (movement bled to a stop +
+##                                  _apply_motion run); the caller must `return` immediately.
+##   {"act": true, "dist": <px>} -> a live target: proceed into the type-specific state machine, then
+##                                  finish with _apply_motion(delta) exactly as the old inline loops did.
+## Behaviour is byte-identical to the old inline blocks (same stationary + no-target bleed-to-stop,
+## same facing/avatar update). Two seams let a subclass diverge without copying the block: _on_no_target()
+## (reset its own FSM enum when the target vanishes) and _sense_facing() (the Charger's dash bearing).
+func _sense(delta: float) -> Dictionary:
 	if is_dead:
-		return
+		return {"act": false}
 
 	if stationary:
-		# Training dummy: hold position, but still slide from knockback and decay it.
+		# Pinned fixture (a training dummy / a passive standing target): hold position, bleed knockback
+		# only. No facing, no pursuit -- the exact base-dummy hold the durability legs depend on.
 		_move_velocity = _move_velocity.move_toward(Vector2.ZERO, friction * delta)
 		_apply_motion(delta)
-		return
+		return {"act": false}
 
 	_resolve_target()
 	if _target == null:
-		# No player in the tree (freed/absent): coast to a stop, stay idle.
+		# No player in the tree (freed/absent): coast to a stop, let the type reset its FSM, stay idle.
 		_move_velocity = _move_velocity.move_toward(Vector2.ZERO, friction * delta)
-		_state = State.IDLE
+		_on_no_target()
 		_apply_motion(delta)
-		return
+		return {"act": false}
 
 	var to_target: Vector2 = _target.global_position - global_position
 	var dist: float = to_target.length()
-	if dist > 0.001:
-		_facing = to_target / dist
-	# The Body's D-shape is a LEFT/RIGHT FLIP via scale.x = +/-1 (a true horizontal
-	# mirror). NOT rotation: a 180deg rotation flips the base-anchored polygon
-	# vertically too, shifting it down-screen. _side_facing only updates when the
-	# target has an x offset -- directly-above/below alignment leaves it untouched, so
-	# the body never flips on vertical-only alignment. _facing (full direction, used to
-	# aim the attack hitbox) still updates above, unchanged.
+	# _facing is chosen by _sense_facing so a subclass can point the body elsewhere (the Charger's
+	# locked dash bearing); the default faces the target. The Body's D-shape is a LEFT/RIGHT FLIP via
+	# scale.x = +/-1 (a true horizontal mirror), NOT a rotation: a 180deg rotation would flip the base-
+	# anchored polygon vertically too, shifting it down-screen. _side_facing only updates when the
+	# target has an x offset -- directly-above/below alignment leaves it untouched, so the body never
+	# flips on vertical-only alignment.
+	_facing = _sense_facing(to_target, dist)
 	if _facing.x > 0.0:
 		_side_facing = 1
 	elif _facing.x < 0.0:
@@ -158,30 +168,24 @@ func _physics_process(delta: float) -> void:
 	# Four-facing look: horizontal keeps the D-shape flipped by _side_facing (unchanged); pure
 	# up/down swaps in the rectangle body (and, facing DOWN, shows the face) -- see avatar.gd.
 	_avatar.update(_facing, _side_facing)
+	return {"act": true, "dist": dist}
 
-	match _state:
-		State.IDLE:
-			_move_velocity = _move_velocity.move_toward(Vector2.ZERO, friction * delta)
-			if dist <= detection_range:
-				_state = State.CHASE
-		State.CHASE:
-			if dist > detection_range:
-				_state = State.IDLE
-			elif dist <= attack_range:
-				_move_velocity = Vector2.ZERO
-				_state = State.ATTACK
-			else:
-				_move_velocity = _move_velocity.move_toward(_facing * move_speed, acceleration * delta)
-		State.ATTACK:
-			# Hold position while in range; leave to CHASE if the player kited out
-			# (but never mid-swing). Swing whenever the guard is clear.
-			_move_velocity = Vector2.ZERO
-			if dist > attack_range and not _attacking:
-				_state = State.CHASE
-			elif not _attacking and not _on_cooldown:
-				attack()
 
-	_apply_motion(delta)
+## The aim direction _sense() drives the Body flip + Avatar with this frame. Default: face the resolved
+## target (to_target normalized; _facing is left UNCHANGED when the target is essentially on top of us,
+## dist <= 0.001, matching the old `if dist > 0.001` guard). A subclass whose body should point
+## elsewhere for a frame -- the Charger locking onto its committed dash bearing mid-CHARGE -- overrides.
+func _sense_facing(to_target: Vector2, dist: float) -> Vector2:
+	if dist > 0.001:
+		return to_target / dist
+	return _facing
+
+
+## Hook _sense() calls on the frame the target goes null, before _apply_motion. Default: no-op. A
+## subclass with its own FSM enum resets it here (the Charger back to TRACK, the Spitter to REPOSITION)
+## so a target that reappears resumes cleanly rather than mid-committed-action.
+func _on_no_target() -> void:
+	pass
 
 
 ## Combine controlled movement with the decaying knockback impulse, move, then

@@ -67,40 +67,16 @@ var _charge_start: Vector2 = Vector2.ZERO
 var _telegraphing: bool = false
 
 
-## Per-frame dash AI. Fully replaces the base chaser loop with the TRACK/WINDUP/CHARGE/RECOVER machine.
-## Honors the same `stationary` pin as the base (identical hold-position + knockback-bleed early-out).
+## Per-frame dash AI. The shared _sense() preamble (base) runs the dead / stationary-pin / no-target
+## early-outs and the facing + Avatar pass; this supplies only the TRACK/WINDUP/CHARGE/RECOVER machine
+## on top. The stationary pin is honored by _sense (identical hold-position + knockback-bleed). The two
+## Charger-specific seams -- resetting to TRACK when the target vanishes, and facing the locked dash
+## bearing mid-CHARGE -- live in the _on_no_target() / _sense_facing() overrides below.
 func _physics_process(delta: float) -> void:
-	if is_dead:
+	var sense: Dictionary = _sense(delta)
+	if not sense["act"]:
 		return
-
-	if stationary:
-		# Pinned passive target: hold position, bleed knockback only. No tracking / wind-up / dash.
-		_move_velocity = _move_velocity.move_toward(Vector2.ZERO, friction * delta)
-		_apply_motion(delta)
-		return
-
-	_resolve_target()
-	if _target == null:
-		# No player in the tree (freed/absent): coast to a stop, hold TRACK.
-		_move_velocity = _move_velocity.move_toward(Vector2.ZERO, friction * delta)
-		_charger_state = ChargerState.TRACK
-		_apply_motion(delta)
-		return
-
-	var to_target: Vector2 = _target.global_position - global_position
-	var dist: float = to_target.length()
-	if dist > 0.001:
-		_facing = to_target / dist
-	# While dashing the body commits to the LOCKED bearing, not the (now stale) live target direction --
-	# the four-facing look points along the charge, reinforcing "it's going THAT way, not at you now".
-	if _charger_state == ChargerState.CHARGE:
-		_facing = _charge_dir
-	if _facing.x > 0.0:
-		_side_facing = 1
-	elif _facing.x < 0.0:
-		_side_facing = -1
-	# The four-facing look tracks every state -- same rule as the base chaser, the Tank and the Swordsman.
-	_avatar.update(_facing, _side_facing)
+	var dist: float = sense["dist"]
 
 	_state_elapsed += delta
 	match _charger_state:
@@ -133,6 +109,21 @@ func _physics_process(delta: float) -> void:
 				_enter_track()
 
 	_apply_motion(delta)
+
+
+## Base _sense() seam: reset to TRACK the frame the target goes null, so a reappearing player is lined
+## up with a fresh dash rather than resumed mid-windup/charge (verbatim the old no-target branch).
+func _on_no_target() -> void:
+	_charger_state = ChargerState.TRACK
+
+
+## Base _sense() seam: while dashing, the body commits to the LOCKED bearing, not the (now stale) live
+## target direction -- the four-facing look points along the charge, reinforcing "it's going THAT way,
+## not at you now". Every other state uses the base target-facing.
+func _sense_facing(to_target: Vector2, dist: float) -> Vector2:
+	if _charger_state == ChargerState.CHARGE:
+		return _charge_dir
+	return super._sense_facing(to_target, dist)
 
 
 ## TRACK -> WINDUP: STOP, lock the dash line toward the player's CURRENT position (design-enemies.md:

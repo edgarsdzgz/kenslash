@@ -43,38 +43,15 @@ var _telegraphing: bool = false
 var _calm_elapsed: float = 0.0
 
 
-## Per-frame AI. Fully replaces the base chaser loop with the GRAZE/ENRAGED/CALM machine. Honors the
-## same `stationary` pin as the base (identical hold-position + knockback-bleed early-out), so a
-## pinned Tank is a byte-for-byte stand-in for the old dummy in the shared test fixture.
+## Per-frame AI. The shared _sense() preamble (base) runs the dead / stationary-pin / no-target early-
+## outs and the facing + Avatar pass (a grazing beast still turns to watch you); this supplies only the
+## GRAZE/ENRAGED/CALM machine on top. The stationary pin is honored by _sense (identical hold-position +
+## knockback-bleed), so a pinned Tank stays a byte-for-byte stand-in for the old dummy in the fixture.
 func _physics_process(delta: float) -> void:
-	if is_dead:
+	var sense: Dictionary = _sense(delta)
+	if not sense["act"]:
 		return
-
-	if stationary:
-		# Pinned fixture (dummy.tscn): hold position, bleed knockback only. No facing, no pursuit,
-		# no stomp -- the exact base-dummy behaviour the durability legs and leg h depend on.
-		_move_velocity = _move_velocity.move_toward(Vector2.ZERO, friction * delta)
-		_apply_motion(delta)
-		return
-
-	_resolve_target()
-	if _target == null:
-		# No player in the tree: coast to a stop, hold GRAZE.
-		_move_velocity = _move_velocity.move_toward(Vector2.ZERO, friction * delta)
-		_apply_motion(delta)
-		return
-
-	var to_target: Vector2 = _target.global_position - global_position
-	var dist: float = to_target.length()
-	if dist > 0.001:
-		_facing = to_target / dist
-	if _facing.x > 0.0:
-		_side_facing = 1
-	elif _facing.x < 0.0:
-		_side_facing = -1
-	# Facing + Avatar track in EVERY state (a grazing beast still turns to watch you). The four-
-	# facing look is driven here, before the FSM decides movement -- same rule as the base chaser.
-	_avatar.update(_facing, _side_facing)
+	var dist: float = sense["dist"]
 
 	match _tank_state:
 		TankState.GRAZE:
