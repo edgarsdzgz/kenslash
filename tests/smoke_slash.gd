@@ -106,6 +106,9 @@ func _run() -> void:
 	# --- Elevation + inside/outside FOUNDATION (self-contained: own player + trigger, remote) ---
 	await TestElevation.new().run(ctx)
 
+	# --- Progression: XP + level curve + two-currency banking (self-contained: pure instances + own player) ---
+	await TestProgression.new().run(ctx)
+
 	# --- Boulder terrain Environment #2 (self-contained: own holders/players/boulders + ChunkManager) ---
 	await TestBoulder.new().run(ctx)
 

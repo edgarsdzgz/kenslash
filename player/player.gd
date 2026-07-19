@@ -97,6 +97,7 @@ var _locomotion: Locomotion = null  ## Movement + sprint + dodge subsystem (comp
 var _stamina: Stamina = null  ## Stamina pool (components/stamina.gd): sprint drains it, a dodge spends it; the HUD reads it via the facade below. RefCounted, made in _ready.
 var _elevation: Elevation = null  ## Elevation foundation (components/elevation.gd): float z + body draw-offset + ground-shadow pin + depth key. RefCounted like the others, made in _ready.
 var _region: Region = null  ## Inside/outside region flag (components/region.gd): OUTSIDE default; a RegionTrigger flips it via set_region. RefCounted, made in _ready.
+var _progression: Progression = null  ## XP + level + the two point currencies (components/progression.gd): CHARACTER data, portable across worlds. RefCounted, made in _ready. Part 1.2 feeds it XP; no award hooks wired yet.
 ## Decaying knockback impulse, added on top of movement. Also carries the lunge.
 var _knockback: Vector2 = Vector2.ZERO
 ## Looping tween that blinks the avatar while invincible; null when not blinking.
@@ -245,6 +246,11 @@ func _ready() -> void:
 	# Inside/outside region (design-environment.md #3). OUTSIDE until a RegionTrigger flips it via
 	# set_region below. Just the flag + `changed` signal foundation -- no roof-fade / lighting / music yet.
 	_region = Region.new()
+	# XP + levels + the two point currencies (plan-core-loop.md Phase 1, Part 1.1). CHARACTER data
+	# in the MP-ready split (design-multiplayer.md): portable across worlds. RefCounted like the
+	# components above (a Node would perturb the streaming node-count anchor). Self-contained data/
+	# logic -- no scene/Input/Time/RNG. XP award hooks (kills/harvest) land in Part 1.2, NOT here.
+	_progression = Progression.new()
 
 
 ## Equip a tool (facade -> Equipment.equip_tool). Directly callable -- a headless test
