@@ -97,7 +97,7 @@ var _locomotion: Locomotion = null  ## Movement + sprint + dodge subsystem (comp
 var _stamina: Stamina = null  ## Stamina pool (components/stamina.gd): sprint drains it, a dodge spends it; the HUD reads it via the facade below. RefCounted, made in _ready.
 var _elevation: Elevation = null  ## Elevation foundation (components/elevation.gd): float z + body draw-offset + ground-shadow pin + depth key. RefCounted like the others, made in _ready.
 var _region: Region = null  ## Inside/outside region flag (components/region.gd): OUTSIDE default; a RegionTrigger flips it via set_region. RefCounted, made in _ready.
-var _progression: Progression = null  ## XP + level + the two point currencies (components/progression.gd): CHARACTER data, portable across worlds. RefCounted, made in _ready. Part 1.2 feeds it XP; no award hooks wired yet.
+var _character: CharacterSheet = null  ## The portable CHARACTER bundle (components/character_sheet.gd): OWNS the Progression (XP + level + the two point currencies), and later talents (P2.2b) + known-recipes (Phase 3). RefCounted, made in _ready. See design-multiplayer.md.
 ## Decaying knockback impulse, added on top of movement. Also carries the lunge.
 var _knockback: Vector2 = Vector2.ZERO
 ## Looping tween that blinks the avatar while invincible; null when not blinking.
@@ -246,11 +246,10 @@ func _ready() -> void:
 	# Inside/outside region (design-environment.md #3). OUTSIDE until a RegionTrigger flips it via
 	# set_region below. Just the flag + `changed` signal foundation -- no roof-fade / lighting / music yet.
 	_region = Region.new()
-	# XP + levels + the two point currencies (plan-core-loop.md Phase 1, Part 1.1). CHARACTER data
-	# in the MP-ready split (design-multiplayer.md): portable across worlds. RefCounted like the
-	# components above (a Node would perturb the streaming node-count anchor). Self-contained data/
-	# logic -- no scene/Input/Time/RNG. XP award hooks (kills/harvest) land in Part 1.2, NOT here.
-	_progression = Progression.new()
+	# The portable CHARACTER bundle (plan-epic1-parts.md Part 2.2a; design-multiplayer.md): OWNS the
+	# Progression (made in _init) + later talents (P2.2b)/known-recipes (Phase 3), so player.gd stops
+	# accreting a field+facade per character system (CONVENTIONS.md Rule 1). RefCounted like the others.
+	_character = CharacterSheet.new()
 
 
 ## Equip a tool (facade -> Equipment.equip_tool). Directly callable -- a headless test
@@ -480,20 +479,16 @@ func collect(item: ItemData, count: int) -> int:
 	return _pickup.collect(self, item, count)
 
 
-# --- Progression facade (Part 1.2) ----------------------------------------------------
-## XP award facade -> the Progression. Enemy kills (enemy.gd) and harvest yields (tree/rock/forageable)
-## resolve the player through the "player" group and call this to bank XP, so they never reach into the
-## private _progression themselves. Single-player: the local player. Integer amounts, no Time/OS/RNG --
-## Progression.add_xp does the deterministic level/point banking (Part 1.1, unchanged).
+# --- CharacterSheet facade (Part 2.2a) ------------------------------------------------
+## XP award facade -> the CharacterSheet. Kills (enemy.gd) + harvest yields resolve the player through the
+## "player" group and call this to bank XP. Integer, no Time/OS/RNG -- sheet forwards to Progression.add_xp.
 func award_xp(amount: int) -> void:
-	_progression.add_xp(amount)
+	_character.award_xp(amount)
 
 
-## Progression readouts the HUD polls each frame for its level/xp line -- the SAME read-only pattern it
-## uses for stamina/health (the player never pushes into the HUD; the HUD reads the player).
-func progression_level() -> int:
-	return _progression.level
-func progression_xp() -> int:
-	return _progression.xp
+## Read accessor for the portable CHARACTER bundle (design-multiplayer.md): the HUD polls
+## player.character().level()/.xp() each frame. ONE accessor covers talents (P2.2b) + recipes (Phase 3).
+func character() -> CharacterSheet:
+	return _character
 
 # Verified against: Godot 4.7.1 (2026-07-19)

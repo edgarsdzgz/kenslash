@@ -51,12 +51,12 @@ func _kill_leg(ctx: TestContext) -> void:
 
 	var gp: Player = ctx.tree.get_first_node_in_group("player") as Player
 	var reward: int = enemy.xp_reward
-	var before: int = gp._progression.xp if gp != null else -1
+	var before: int = gp.character().progression.xp if gp != null else -1
 	var eh: HealthComponent = enemy.get_node("HealthComponent") as HealthComponent
 	eh.take_damage(eh.current_health)  # guaranteed lethal -> died -> _on_died awards synchronously
-	ctx.check(gp != null and gp._progression.xp == before + reward and reward == 20,
-		"killing an enemy grants its exact xp_reward (%d) to the player's progression (%d -> %d)" % [reward, before, gp._progression.xp if gp != null else -1],
-		"kill XP wrong (before %d after %d reward %d)" % [before, gp._progression.xp if gp != null else -1, reward])
+	ctx.check(gp != null and gp.character().progression.xp == before + reward and reward == 20,
+		"killing an enemy grants its exact xp_reward (%d) to the player's progression (%d -> %d)" % [reward, before, gp.character().progression.xp if gp != null else -1],
+		"kill XP wrong (before %d after %d reward %d)" % [before, gp.character().progression.xp if gp != null else -1, reward])
 
 	holder.queue_free()
 	await ctx.tree.physics_frame
@@ -76,12 +76,12 @@ func _fell_leg(ctx: TestContext) -> void:
 
 	var fell_xp: int = int(tree_node.get_script().get_script_constant_map()["XP_PER_FELL"])
 	var gp: Player = ctx.tree.get_first_node_in_group("player") as Player
-	var before: int = gp._progression.xp if gp != null else -1
+	var before: int = gp.character().progression.xp if gp != null else -1
 	var tree_mat: DurabilityComponent = tree_node.get_node("Material") as DurabilityComponent
 	tree_mat.wear(tree_mat.current_durability)  # integrity -> 0 -> felled -> award once
-	ctx.check(gp != null and gp._progression.xp == before + fell_xp and fell_xp == 15,
-		"felling a tree grants exactly XP_PER_FELL (%d) once (%d -> %d)" % [fell_xp, before, gp._progression.xp if gp != null else -1],
-		"tree-fell XP wrong (before %d after %d fell_xp %d)" % [before, gp._progression.xp if gp != null else -1, fell_xp])
+	ctx.check(gp != null and gp.character().progression.xp == before + fell_xp and fell_xp == 15,
+		"felling a tree grants exactly XP_PER_FELL (%d) once (%d -> %d)" % [fell_xp, before, gp.character().progression.xp if gp != null else -1],
+		"tree-fell XP wrong (before %d after %d fell_xp %d)" % [before, gp.character().progression.xp if gp != null else -1, fell_xp])
 
 	holder.queue_free()
 	await ctx.tree.physics_frame
@@ -99,16 +99,16 @@ func _mine_leg(ctx: TestContext) -> void:
 	await ctx.tree.physics_frame
 
 	var gp: Player = ctx.tree.get_first_node_in_group("player") as Player
-	var before: int = gp._progression.xp if gp != null else -1
+	var before: int = gp.character().progression.xp if gp != null else -1
 	var rock_mat: DurabilityComponent = rock_node.get_node("Material") as DurabilityComponent
 	var n_hits: int = rock_mat.current_durability  # integrity N
 	for _i in range(n_hits):
 		rock_mat.wear(1)
 		await ctx.tree.physics_frame
 	var expected: int = n_hits * Rock.XP_PER_MINE
-	ctx.check(gp != null and gp._progression.xp == before + expected and Rock.XP_PER_MINE == 5,
-		"mining a rock grants XP_PER_MINE (%d) per affecting mine -- %d mines banked %d (%d -> %d)" % [Rock.XP_PER_MINE, n_hits, expected, before, gp._progression.xp if gp != null else -1],
-		"rock-mine XP wrong (before %d after %d expected +%d)" % [before, gp._progression.xp if gp != null else -1, expected])
+	ctx.check(gp != null and gp.character().progression.xp == before + expected and Rock.XP_PER_MINE == 5,
+		"mining a rock grants XP_PER_MINE (%d) per affecting mine -- %d mines banked %d (%d -> %d)" % [Rock.XP_PER_MINE, n_hits, expected, before, gp.character().progression.xp if gp != null else -1],
+		"rock-mine XP wrong (before %d after %d expected +%d)" % [before, gp.character().progression.xp if gp != null else -1, expected])
 
 	holder.queue_free()
 	await ctx.tree.physics_frame
@@ -128,16 +128,16 @@ func _forage_leg(ctx: TestContext) -> void:
 	await ctx.tree.physics_frame
 
 	var forage_xp: int = Forageable.XP_PER_FORAGE
-	var before: int = player._progression.xp
+	var before: int = player.character().progression.xp
 	var pebble: Pebble = PEBBLE_SCENE.instantiate() as Pebble
 	holder.add_child(pebble)
 	pebble.global_position = player.global_position
 	await ctx.tree.physics_frame
 	pebble.interact(player)  # gather -> collect the stone + award XP_PER_FORAGE to THIS player
 	await ctx.tree.physics_frame
-	ctx.check(player._progression.xp == before + forage_xp and forage_xp == 3,
-		"foraging a pebble grants exactly XP_PER_FORAGE (%d) to the picker (%d -> %d)" % [forage_xp, before, player._progression.xp],
-		"forage XP wrong (before %d after %d forage_xp %d)" % [before, player._progression.xp, forage_xp])
+	ctx.check(player.character().progression.xp == before + forage_xp and forage_xp == 3,
+		"foraging a pebble grants exactly XP_PER_FORAGE (%d) to the picker (%d -> %d)" % [forage_xp, before, player.character().progression.xp],
+		"forage XP wrong (before %d after %d forage_xp %d)" % [before, player.character().progression.xp, forage_xp])
 
 	holder.queue_free()
 	await ctx.tree.physics_frame
@@ -160,7 +160,7 @@ func _boundary_leg(ctx: TestContext) -> void:
 
 	var forage_xp: int = Forageable.XP_PER_FORAGE
 	var guard: int = 0
-	while player._progression.level < 2 and guard < 100:
+	while player.character().progression.level < 2 and guard < 100:
 		var pebble: Pebble = PEBBLE_SCENE.instantiate() as Pebble
 		holder.add_child(pebble)
 		pebble.interact(player)  # +XP_PER_FORAGE each, through the real forage hook
@@ -168,10 +168,10 @@ func _boundary_leg(ctx: TestContext) -> void:
 		guard += 1
 
 	var crossed_xp: int = guard * forage_xp  # exact xp at the first crossing (34 * 3 = 102)
-	ctx.check(player._progression.level == 2 and player._progression.xp == crossed_xp
-			and player._progression.talent_points == 1 and player._progression.blueprint_points == 1,
+	ctx.check(player.character().progression.level == 2 and player.character().progression.xp == crossed_xp
+			and player.character().progression.talent_points == 1 and player.character().progression.blueprint_points == 1,
 		"a scripted forage sequence crossed the level-2 boundary (%d forages -> %d xp) and banked exactly 1 talent + 1 blueprint" % [guard, crossed_xp],
-		"boundary crossing banked wrong (L%d xp%d T%d B%d after %d forages)" % [player._progression.level, player._progression.xp, player._progression.talent_points, player._progression.blueprint_points, guard])
+		"boundary crossing banked wrong (L%d xp%d T%d B%d after %d forages)" % [player.character().progression.level, player.character().progression.xp, player.character().progression.talent_points, player.character().progression.blueprint_points, guard])
 
 	holder.queue_free()
 	await ctx.tree.physics_frame
@@ -201,7 +201,7 @@ func _hud_leg(ctx: TestContext) -> void:
 	# Award 100 xp -> exactly the level-2 threshold; the per-frame HUD pass shows the new level + xp.
 	player.award_xp(100)
 	await ctx.settle_idle()
-	ctx.check(player._progression.level == 2 and hud.level_text() == "Lv 2  XP 100",
+	ctx.check(player.character().progression.level == 2 and hud.level_text() == "Lv 2  XP 100",
 		"HUD level/xp readout follows the award across a level-up (\"" + hud.level_text() + "\")",
 		"HUD level/xp readout did not reflect the award (\"" + hud.level_text() + "\")")
 
@@ -220,9 +220,9 @@ func _hud_leg(ctx: TestContext) -> void:
 	var hud2: Hud = sw2.get_node("HUD") as Hud
 	player2.award_xp(700)  # level 1 -> 6 in one award (crosses 2,3,4,5,6 at once)
 	await ctx.settle_idle()
-	ctx.check(player2._progression.level == 6 and hud2.level_text() == "Lv 6  XP 700",
+	ctx.check(player2.character().progression.level == 6 and hud2.level_text() == "Lv 6  XP 700",
 		"HUD level/xp readout shows the EXACT reached level on a multi-level jump (\"" + hud2.level_text() + "\")",
-		"HUD multi-level readout wrong (level " + str(player2._progression.level) + ", \"" + hud2.level_text() + "\")")
+		"HUD multi-level readout wrong (level " + str(player2.character().progression.level) + ", \"" + hud2.level_text() + "\")")
 
 	sw2.queue_free()
 	await ctx.settle_idle()

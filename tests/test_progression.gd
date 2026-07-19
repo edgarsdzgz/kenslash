@@ -8,7 +8,7 @@ class_name TestProgression extends RefCounted
 ##     banks the correct CUMULATIVE totals (award depends only on the level reached, not on the path);
 ##   * the TALENT_LEVEL_CAP holds -- talent points STOP at the cap (Track A, level-gated/capped) while
 ##     blueprint points KEEP accruing (Track B continues).
-## Also checks a fresh player carries a wired `_progression` at the default state (level 1, no points).
+## Also checks a fresh player carries a wired CharacterSheet (owning the Progression) at the default state.
 ## Self-contained: the currency math needs no scene (pure component instances); the wiring leg builds
 ## its own holder + player at a REMOTE coord, frees it, and touches no shared game state. Registered in
 ## tests/smoke_slash.gd, mirroring tests/test_elevation.gd.
@@ -121,7 +121,8 @@ func _award_tests(ctx: TestContext) -> void:
 		"post-cap level-up entangled the currencies (L%d T%d B%d)" % [over.level, over.talent_points, over.blueprint_points])
 
 
-## Player-wiring leg: a fresh player carries a wired `_progression` at the default state, and driving
+## Player-wiring leg: a fresh player carries a wired CharacterSheet (owning the Progression) at the
+## default state, and driving
 ## its component through the SAME public API banks correctly on the instance the player actually owns.
 func _wiring_leg(ctx: TestContext) -> void:
 	var player_scene: PackedScene = load("res://player/player.tscn")
@@ -139,19 +140,25 @@ func _wiring_leg(ctx: TestContext) -> void:
 	await ctx.settle_idle()
 	await ctx.tree.physics_frame
 
-	ctx.check(player._progression != null and player._progression.level == 1
-			and player._progression.xp == 0 and player._progression.talent_points == 0
-			and player._progression.blueprint_points == 0,
-		"a fresh player carries a wired _progression at the default state (level 1, no xp, no points)",
-		"player _progression missing or not at the default state")
+	# Part 2.2a: the Progression is now OWNED by the portable CharacterSheet (player.character()); reach it
+	# through player.character().progression. The sheet itself is a CharacterSheet whose level/xp track it.
+	var sheet: CharacterSheet = player.character()
+	ctx.check(sheet is CharacterSheet and sheet.level() == 1 and sheet.xp() == 0,
+		"a fresh player carries a wired CharacterSheet whose level/xp track (level 1, xp 0)",
+		"player CharacterSheet missing or its level/xp accessors not at the default state")
+	ctx.check(sheet.progression != null and sheet.progression.level == 1
+			and sheet.progression.xp == 0 and sheet.progression.talent_points == 0
+			and sheet.progression.blueprint_points == 0,
+		"a fresh player carries a wired progression at the default state (level 1, no xp, no points)",
+		"player progression missing or not at the default state")
 
 	# Drive the player's OWN progression instance through the public API -- proves the wiring reaches a
 	# live, mutable component (mirrors how the elevation leg drives player._elevation.set_z directly).
-	player._progression.add_xp(220)  # level 1 -> 3
-	ctx.check(player._progression.level == 3 and player._progression.talent_points == 2
-			and player._progression.blueprint_points == 2,
-		"driving the player's own _progression banks on the wired instance (220 xp -> L3 T2 B2)",
-		"the player's wired _progression did not bank correctly (L%d T%d B%d)" % [player._progression.level, player._progression.talent_points, player._progression.blueprint_points])
+	sheet.progression.add_xp(220)  # level 1 -> 3
+	ctx.check(sheet.progression.level == 3 and sheet.progression.talent_points == 2
+			and sheet.progression.blueprint_points == 2,
+		"driving the player's own progression banks on the wired instance (220 xp -> L3 T2 B2)",
+		"the player's wired progression did not bank correctly (L%d T%d B%d)" % [sheet.progression.level, sheet.progression.talent_points, sheet.progression.blueprint_points])
 
 	holder.queue_free()
 	await ctx.tree.physics_frame

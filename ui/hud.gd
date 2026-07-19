@@ -161,7 +161,8 @@ func _action_key_text() -> String:
 ## read-only facade and render a single legible line "Lv <level>  XP <xp>". Presentation only -- the XP
 ## award hooks live in the gameplay path (enemy kills / harvest), never here; the HUD only reads.
 func _refresh_level() -> void:
-	_level_label.text = "Lv %d  XP %d" % [_player.progression_level(), _player.progression_xp()]
+	var sheet: CharacterSheet = _player.character()
+	_level_label.text = "Lv %d  XP %d" % [sheet.level(), sheet.xp()]
 
 
 func _refresh_health() -> void:
