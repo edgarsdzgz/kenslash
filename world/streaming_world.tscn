@@ -1,13 +1,39 @@
-[gd_scene load_steps=4 format=4]
+[gd_scene load_steps=7 format=4]
 
 [ext_resource type="Script" path="res://world/streaming_world.gd" id="1_sw"]
 [ext_resource type="Script" path="res://world/chunk_manager.gd" id="2_mgr"]
 [ext_resource type="PackedScene" path="res://player/player.tscn" id="3_player"]
 [ext_resource type="PackedScene" path="res://ui/hud.tscn" id="4_hud"]
+[ext_resource type="Shader" path="res://world/meadow_ground.gdshader" id="5_ground"]
+
+[sub_resource type="ShaderMaterial" id="ShaderMaterial_ground"]
+shader = ExtResource("5_ground")
+shader_parameter/cam_center = Vector2(0, 0)
+shader_parameter/cam_zoom = Vector2(1, 1)
+shader_parameter/viewport_size = Vector2(1152, 648)
+shader_parameter/base_green = Color(0.36, 0.54, 0.29, 1)
+shader_parameter/light_green = Color(0.44, 0.63, 0.33, 1)
+shader_parameter/dark_green = Color(0.29, 0.44, 0.23, 1)
+shader_parameter/dirt_color = Color(0.48, 0.42, 0.31, 1)
+shader_parameter/flower_color = Color(0.9, 0.92, 0.7, 1)
+shader_parameter/macro_freq = 0.0016
+shader_parameter/dirt_freq = 0.01
+shader_parameter/flower_freq = 0.055
 
 [node name="StreamingWorld" type="Node2D"]
 y_sort_enabled = true
 script = ExtResource("1_sw")
+
+[node name="GroundLayer" type="CanvasLayer" parent="."]
+layer = -100
+
+[node name="Ground" type="ColorRect" parent="GroundLayer"]
+material = SubResource("ShaderMaterial_ground")
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
 
 [node name="ChunkManager" type="Node2D" parent="."]
 y_sort_enabled = true

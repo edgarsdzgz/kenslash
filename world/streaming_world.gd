@@ -15,6 +15,12 @@ extends Node2D
 ## player below so it can READ live health/tool/durability/hotbar state without the player
 ## ever reaching into the UI (or growing a new signal for it).
 @onready var _hud: Hud = $HUD
+## Meadow ground (design-environment.md #1). A full-screen ColorRect on a LOW CanvasLayer
+## (layer -100 -> draws BEHIND the streamed world + entities) running world/meadow_ground.gdshader.
+## Its ShaderMaterial samples world-space noise to paint a splotchy meadow; the camera pair below
+## is what keeps the pattern anchored to WORLD space instead of sliding with the screen.
+@onready var _ground_mat: ShaderMaterial = ($GroundLayer/Ground as ColorRect).material as ShaderMaterial
+@onready var _camera: Camera2D = $Player/Camera2D
 
 
 func _ready() -> void:
@@ -30,4 +36,17 @@ func _ready() -> void:
 	print("[streaming_world] ready -- streaming a %d-chunk set around the player" % [
 		(2 * _manager.load_radius + 1) * (2 * _manager.load_radius + 1)])
 
-# Verified against: Godot 4.7.1 (2026-07-17)
+
+## Meadow ground world-anchoring feed (design-environment.md #1). Each frame, hand the ground
+## shader the camera's screen-center (in WORLD pixels), zoom, and viewport size so it can
+## reconstruct the world position under every fragment. THIS is the world-anchored invariant:
+## as the Camera2D follows the player, the meadow noise scrolls WITH the world rather than
+## staying fixed to the screen (which would shimmer). A few cheap uniform writes, no game state.
+func _process(_delta: float) -> void:
+	if _ground_mat == null:
+		return
+	_ground_mat.set_shader_parameter("cam_center", _camera.get_screen_center_position())
+	_ground_mat.set_shader_parameter("cam_zoom", _camera.zoom)
+	_ground_mat.set_shader_parameter("viewport_size", get_viewport_rect().size)
+
+# Verified against: Godot 4.7.1 (2026-07-19)

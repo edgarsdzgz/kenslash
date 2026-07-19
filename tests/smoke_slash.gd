@@ -100,6 +100,9 @@ func _run() -> void:
 	# --- Playable loop D2 HUD (self-contained: instantiates streaming_world.tscn) -
 	await TestHud.new().run(ctx)
 
+	# --- Meadow ground (self-contained: instantiates streaming_world.tscn) --------
+	await TestGround.new().run(ctx)
+
 	# --- Encumbrance E-weight (self-contained: own two players driven at remote coords) ---
 	await TestEncumbrance.new().run(ctx)
 
