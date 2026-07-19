@@ -222,6 +222,52 @@ func run(ctx: TestContext) -> void:
 		"HUD stamina bar drops and turns the low/warning tint under 25% (ratio " + str(hud.stamina_bar_ratio()) + ")",
 		"HUD stamina bar did not reflect low stamina (ratio " + str(hud.stamina_bar_ratio()) + " low=" + str(hud.stamina_bar_low()) + ")")
 
+	# --- design-controls.md: the stamina GHOST BAR (Street-Fighter consumption highlight) ---------
+	# On a SPEND the front bar snaps to the new value while a RED ghost lingers at the old value and
+	# eases down to catch up (a shrinking "just-spent" chunk); on a REGEN the ghost snaps up with the
+	# front (no red gap). Freeze the player's physics so the Stamina pool changes ONLY when we set it
+	# -- otherwise the per-_physics_process auto-regen would race the ghost ease and flake the reads.
+	# Deterministic: drive _stamina.current directly + step idle frames (the ghost ease is delta-timed).
+	player.set_physics_process(false)
+	player._stamina.current = player._stamina.max_stamina  # refill to full
+	await ctx.settle_idle()
+	await ctx.settle_idle()
+	ctx.check(is_equal_approx(hud.stamina_bar_ratio(), 1.0) and is_equal_approx(hud.stamina_ghost_ratio(), 1.0),
+		"stamina ghost sits with the front bar at full and snapped UP after the refill (front " + str(hud.stamina_bar_ratio()) + " ghost " + str(hud.stamina_ghost_ratio()) + ")",
+		"stamina ghost not aligned with the front bar at full (front " + str(hud.stamina_bar_ratio()) + " ghost " + str(hud.stamina_ghost_ratio()) + ")")
+
+	# SPEND ~65%: the front bar snaps down immediately while the red ghost trails HIGHER (the
+	# just-spent chunk). A single settle is only a couple of frames of ease -- far short of the
+	# ~0.4s full catch-up -- so the ghost is still well above the front here.
+	player._stamina.current = player._stamina.max_stamina * 0.35  # ratio 0.35, front snaps
+	await ctx.settle_idle()
+	var front_spent: float = hud.stamina_bar_ratio()
+	var ghost_spent: float = hud.stamina_ghost_ratio()
+	ctx.check(is_equal_approx(front_spent, 0.35) and ghost_spent > front_spent + 0.1,
+		"on a spend the FRONT bar snaps down instantly while the red ghost trails higher (front " + str(front_spent) + " < ghost " + str(ghost_spent) + ")",
+		"stamina ghost did not trail above the front bar after a spend (front " + str(front_spent) + " ghost " + str(ghost_spent) + ")")
+
+	# Over frames the ghost eases DOWN toward the front and meets it (the red chunk shrinks to zero).
+	# Loop until it meets (generous cap) so the read never depends on the exact headless frame delta.
+	var met: bool = false
+	for _i in range(600):
+		if absf(hud.stamina_ghost_ratio() - hud.stamina_bar_ratio()) < 0.01:
+			met = true
+			break
+		await ctx.tree.process_frame
+	var ghost_late: float = hud.stamina_ghost_ratio()
+	ctx.check(met and ghost_late < ghost_spent and is_equal_approx(hud.stamina_bar_ratio(), 0.35),
+		"stamina ghost eased DOWN over frames to meet the front bar (ghost " + str(ghost_spent) + " -> " + str(ghost_late) + " ~ front " + str(hud.stamina_bar_ratio()) + ")",
+		"stamina ghost did not ease down to meet the front bar (met=" + str(met) + " ghost " + str(ghost_spent) + " -> " + str(ghost_late) + " front " + str(hud.stamina_bar_ratio()) + ")")
+
+	# REGEN (increase): the ghost SNAPS UP with the front -- a refill leaves NO red trailing gap.
+	player._stamina.current = player._stamina.max_stamina  # back to full
+	await ctx.settle_idle()
+	ctx.check(is_equal_approx(hud.stamina_ghost_ratio(), hud.stamina_bar_ratio()) and hud.stamina_ghost_ratio() > 0.95,
+		"stamina ghost SNAPS UP with the front on regen -- no red gap on a refill (front " + str(hud.stamina_bar_ratio()) + " ghost " + str(hud.stamina_ghost_ratio()) + ")",
+		"stamina ghost lagged on regen instead of snapping up (front " + str(hud.stamina_bar_ratio()) + " ghost " + str(hud.stamina_ghost_ratio()) + ")")
+	player.set_physics_process(true)
+
 	sw.queue_free()
 	await ctx.settle_idle()
 

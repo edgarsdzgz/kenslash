@@ -1,6 +1,9 @@
-[gd_scene load_steps=3 format=3]
+[gd_scene load_steps=5 format=3]
 
 [ext_resource type="Script" path="res://ui/hud.gd" id="1_hud"]
+[ext_resource type="Script" path="res://ui/hotbar_panel.gd" id="2_hotbar"]
+
+[sub_resource type="StyleBoxEmpty" id="StyleBoxEmpty_stamina_front"]
 
 [sub_resource type="StyleBoxFlat" id="StyleBoxFlat_hotbar"]
 bg_color = Color(0.08, 0.08, 0.1, 0.55)
@@ -35,6 +38,18 @@ value = 5.0
 
 [node name="StaminaBar" type="ProgressBar" parent="Backdrop/Column"]
 custom_minimum_size = Vector2(180, 10)
+max_value = 1.0
+value = 1.0
+show_percentage = false
+theme_override_styles/background = SubResource("StyleBoxEmpty_stamina_front")
+
+[node name="StaminaGhost" type="ProgressBar" parent="Backdrop/Column/StaminaBar"]
+show_behind_parent = true
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+modulate = Color(0.9, 0.2, 0.2, 0.85)
 max_value = 1.0
 value = 1.0
 show_percentage = false
@@ -82,3 +97,4 @@ theme_override_styles/panel = SubResource("StyleBoxFlat_hotbar")
 
 [node name="Hotbar" type="HBoxContainer" parent="HotbarAnchor/HotbarPanel"]
 theme_override_constants/separation = 4
+script = ExtResource("2_hotbar")
