@@ -14,6 +14,8 @@ class_name TestCharger extends RefCounted
 ##      is LIVE and (on a simulated contact) deals its big damage + knockback.
 ##   d. RECOVER: after the dash it is vulnerable (COLD hitbox, no attack, takes a hit) for the recover
 ##      window, then returns to TRACK.
+##   e. FACING: the arrow-triangle Body points ALONG its facing (up/down/left/right), not swapped to a
+##      rectangle when vertical.
 ## Registered in tests/smoke_slash.gd after the Swordsman module.
 
 const CHARGER_SCENE_PATH: String = "res://enemy/charger.tscn"
@@ -33,6 +35,38 @@ func run(ctx: TestContext) -> void:
 	await _windup_telegraphed_and_locked(ctx, charger_scene, player_scene)
 	await _charge_overshoots_and_hits(ctx, charger_scene, player_scene)
 	await _recover_then_track(ctx, charger_scene, player_scene)
+	await _arrow_points_along_facing(ctx, charger_scene, player_scene)
+
+
+## e. FACING: the arrow-triangle Body points ALONG its facing -- up when facing up, down when facing
+## down, and left/right -- instead of the base swap-to-rectangle. With a target on each axis beyond
+## charge_range (so it stays in TRACK), asserts _body.rotation == facing.angle() and scale.x stays 1.
+func _arrow_points_along_facing(ctx: TestContext, charger_scene: PackedScene, player_scene: PackedScene) -> void:
+	var charger: Charger = _spawn_charger(ctx, charger_scene, Vector2(62000, 62000))
+	var target: Node2D = _spawn_player(ctx, player_scene, Vector2(62300, 62000))
+	charger._target = target
+	await ctx.tree.physics_frame  # warm-up frame: let the charger notice the target before measuring facing
+	var ok: bool = true
+	var detail: String = ""
+	var probes: Array = [
+		["up", Vector2(0, -300), -PI / 2.0],
+		["down", Vector2(0, 300), PI / 2.0],
+		["right", Vector2(300, 0), 0.0],
+		["left", Vector2(-300, 0), PI],
+	]
+	for probe in probes:
+		target.global_position = charger.global_position + (probe[1] as Vector2)
+		await ctx.tree.physics_frame
+		var rot: float = charger._body.rotation
+		if absf(angle_difference(rot, probe[2] as float)) > 0.01 or not is_equal_approx(charger._body.scale.x, 1.0):
+			ok = false
+			detail += " " + str(probe[0]) + "(rot=" + str(rot) + " want=" + str(probe[2]) + " sx=" + str(charger._body.scale.x) + ")"
+	ctx.check(ok,
+		"arrow Body points ALONG facing up/down/left/right (scale.x 1, not swapped to a rectangle)",
+		"charger arrow did not point along facing:" + detail)
+	charger.queue_free()
+	target.queue_free()
+	await ctx.settle_idle()
 
 
 ## a. TRACK: with a target just beyond charge_range it walks in SLOWLY (closing the gap) and, once inside

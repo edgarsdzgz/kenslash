@@ -126,6 +126,20 @@ func _sense_facing(to_target: Vector2, dist: float) -> Vector2:
 	return super._sense_facing(to_target, dist)
 
 
+## Base _update_avatar() seam: the Charger is an ARROW-triangle, so point the Body ALONG its facing
+## (up/down/left/right) rather than the base shape-swap that turns the arrow into a plain rectangle when
+## facing up/down. It now visibly AIMS where it tracks and where it will DASH (mid-CHARGE _facing is the
+## locked dash bearing, so the arrow points straight down the charge line). Rotates the Body Polygon2D
+## ONLY (a visual) -- the CollisionShape / Hurtbox / AttackHitbox are untouched. scale.x stays 1 (a
+## rotation, not a mirror); the triangle polygon is kept as authored; the down-face is never shown (an
+## arrow has no face). Deterministic: facing.angle() is pure (no Time/RNG).
+func _update_avatar(facing: Vector2, _side: int) -> void:
+	if _body == null:
+		return
+	_body.scale.x = 1.0
+	_body.rotation = facing.angle()
+
+
 ## TRACK -> WINDUP: STOP, lock the dash line toward the player's CURRENT position (design-enemies.md:
 ## the dash commits to THIS bearing and never re-homes), aim the (still COLD) hitbox down it, and fire
 ## the readable wind-up flash. The state timer -- not the awaited tween -- drives the commit, so the

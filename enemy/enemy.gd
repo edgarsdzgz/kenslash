@@ -171,7 +171,9 @@ func _sense(delta: float) -> Dictionary:
 		_side_facing = -1
 	# Four-facing look: horizontal keeps the D-shape flipped by _side_facing (unchanged); pure
 	# up/down swaps in the rectangle body (and, facing DOWN, shows the face) -- see avatar.gd.
-	_avatar.update(_facing, _side_facing)
+	# Routed through _update_avatar() so a subclass with a DIRECTIONAL silhouette (the Charger's
+	# arrow) can point its body along facing instead of the default shape-swap.
+	_update_avatar(_facing, _side_facing)
 	return {"act": true, "dist": dist}
 
 
@@ -183,6 +185,14 @@ func _sense_facing(to_target: Vector2, dist: float) -> Vector2:
 	if dist > 0.001:
 		return to_target / dist
 	return _facing
+
+
+## Drive the four-facing look for this frame. Default: the shared Avatar (D-shape flipped horizontal,
+## rectangle vertical, face when DOWN). Overridable so a subclass with a DIRECTIONAL silhouette can
+## diverge -- the Charger, an arrow-triangle, points its Body ALONG facing (up/down/left/right) instead
+## of swapping to the generic rectangle when vertical.
+func _update_avatar(facing: Vector2, side: int) -> void:
+	_avatar.update(facing, side)
 
 
 ## Hook _sense() calls on the frame the target goes null, before _apply_motion. Default: no-op. A
