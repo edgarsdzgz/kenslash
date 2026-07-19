@@ -81,6 +81,15 @@ func _award_tests(ctx: TestContext) -> void:
 		"sub-threshold XP accrues to xp but does not level up or bank points (still L3 T2 B2, xp 270)",
 		"sub-threshold XP wrongly leveled/banked (L%d T%d B%d xp %d)" % [p.level, p.talent_points, p.blueprint_points, p.xp])
 
+	# NON-POSITIVE add_xp is a NO-OP ("XP never decreases" invariant, add_xp guards `amount <= 0`). From
+	# this known non-fresh state (L3 T2 B2, xp 270), a zero and a negative award must change NOTHING --
+	# xp, level, and both banked currencies all stay exactly where they were.
+	p.add_xp(0)
+	p.add_xp(-50)
+	ctx.check(p.xp == 270 and p.level == 3 and p.talent_points == 2 and p.blueprint_points == 2,
+		"add_xp(0) and add_xp(-50) are no-ops from a non-fresh state (stays L3 T2 B2, xp 270) -- XP never decreases",
+		"non-positive add_xp mutated state (L%d T%d B%d xp %d)" % [p.level, p.talent_points, p.blueprint_points, p.xp])
+
 	# MULTI-LEVEL jump from level 1 straight to level 6 banks EACH crossed level once: 5 of each.
 	var j: Progression = Progression.new()
 	j.add_xp(700)  # level 1 -> 6 in one call (crosses levels 2,3,4,5,6)

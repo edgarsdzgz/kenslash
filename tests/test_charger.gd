@@ -45,9 +45,19 @@ func _arrow_points_along_facing(ctx: TestContext, charger_scene: PackedScene, pl
 	var charger: Charger = _spawn_charger(ctx, charger_scene, Vector2(62000, 62000))
 	var target: Node2D = _spawn_player(ctx, player_scene, Vector2(62300, 62000))
 	charger._target = target
+	# TUNING sanity (design-enemies.md): the dash-bruiser is worth more XP than the plain base-dummy
+	# default (20) -- a scene-authored xp_reward, harder enemy for more XP. Documents the charger.tscn value.
+	ctx.check(charger.xp_reward > 20,
+		"Charger xp_reward (" + str(charger.xp_reward) + ") exceeds the base default 20 (dash-bruiser worth more XP)",
+		"Charger xp_reward not raised above the base default (got " + str(charger.xp_reward) + ")")
 	await ctx.tree.physics_frame  # warm-up frame: let the charger notice the target before measuring facing
 	var ok: bool = true
+	# Rotating the visual arrow Body must NEVER rotate the collision hitbox or the hurtbox: in TRACK the
+	# AttackHitbox is only aimed during windup/charge, and the Hurtbox is never aimed -- both stay at
+	# rotation 0 through every facing (the Body spin is visual-only; _update_avatar touches the Body alone).
+	var collision_static: bool = true
 	var detail: String = ""
+	var collision_detail: String = ""
 	var probes: Array = [
 		["up", Vector2(0, -300), -PI / 2.0],
 		["down", Vector2(0, 300), PI / 2.0],
@@ -61,9 +71,15 @@ func _arrow_points_along_facing(ctx: TestContext, charger_scene: PackedScene, pl
 		if absf(angle_difference(rot, probe[2] as float)) > 0.01 or not is_equal_approx(charger._body.scale.x, 1.0):
 			ok = false
 			detail += " " + str(probe[0]) + "(rot=" + str(rot) + " want=" + str(probe[2]) + " sx=" + str(charger._body.scale.x) + ")"
+		if not is_zero_approx(charger._attack_hitbox.rotation) or not is_zero_approx(charger._hurtbox.rotation):
+			collision_static = false
+			collision_detail += " " + str(probe[0]) + "(atk=" + str(charger._attack_hitbox.rotation) + " hurt=" + str(charger._hurtbox.rotation) + ")"
 	ctx.check(ok,
 		"arrow Body points ALONG facing up/down/left/right (scale.x 1, not swapped to a rectangle)",
 		"charger arrow did not point along facing:" + detail)
+	ctx.check(collision_static,
+		"rotating the arrow Body leaves the AttackHitbox + Hurtbox rotation at 0 through TRACK (visual-only spin)",
+		"charger Body rotation leaked into the collision hitbox/hurtbox:" + collision_detail)
 	charger.queue_free()
 	target.queue_free()
 	await ctx.settle_idle()

@@ -208,4 +208,23 @@ func _hud_leg(ctx: TestContext) -> void:
 	sw.queue_free()
 	await ctx.settle_idle()
 
+	# MULTI-LEVEL HUD: a single award that jumps SEVERAL levels at once must still display the exact level
+	# reached (guards a level-DISPLAY off-by-one on multi-level jumps, not just the single-step case above).
+	# A fresh bound player awarded 700 (the documented level-6 threshold: L6 at xp 700) lands on level 6.
+	var sw2: Node2D = sw_scene.instantiate() as Node2D
+	ctx.tree.root.add_child(sw2)
+	var player2: Player = sw2.get_node("Player") as Player
+	player2.pickup_radius = 0.0  # presentation test, not pickup -- suppress the origin-litter magnet
+	await ctx.settle_idle()
+	await ctx.settle_idle()
+	var hud2: Hud = sw2.get_node("HUD") as Hud
+	player2.award_xp(700)  # level 1 -> 6 in one award (crosses 2,3,4,5,6 at once)
+	await ctx.settle_idle()
+	ctx.check(player2._progression.level == 6 and hud2.level_text() == "Lv 6  XP 700",
+		"HUD level/xp readout shows the EXACT reached level on a multi-level jump (\"" + hud2.level_text() + "\")",
+		"HUD multi-level readout wrong (level " + str(player2._progression.level) + ", \"" + hud2.level_text() + "\")")
+
+	sw2.queue_free()
+	await ctx.settle_idle()
+
 # Verified against: Godot 4.7.1 (2026-07-19)
