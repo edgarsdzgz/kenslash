@@ -22,7 +22,11 @@ extends RefCounted
 ## PEBBLE (E4) is likewise generated + forageable (a small stone gathered without a pickaxe); a
 ## gathered pebble is queue_freed and flagged `gone` on the same is_instance_valid path as a bush.
 ## Appended AFTER BUSH -- existing values are NEVER renumbered (they persist to disk later).
-enum Kind { TREE, MINERAL, ENEMY, DROP, BUSH, PEBBLE }
+## BOULDER (Environment #2) IS generated: a large UNMINEABLE terrain obstacle (world/boulder.gd) -- a
+## solid StaticBody2D that blocks movement and divides areas. Unlike a Rock it can NEVER be destroyed
+## (no Hurtbox/durability/drops), so it is PERMANENT: it carries no `gone` path and simply respawns
+## byte-identically every reload. Appended LAST -- existing values are NEVER renumbered.
+enum Kind { TREE, MINERAL, ENEMY, DROP, BUSH, PEBBLE, BOULDER }
 
 ## The concrete TYPE a Kind.ENEMY entry spawns as (encounter variety). Kept as ONE Kind.ENEMY (the
 ## census + hp-capture stay ENEMY-based); the specific roster type rides in the entry's `state` as a
@@ -31,6 +35,13 @@ enum Kind { TREE, MINERAL, ENEMY, DROP, BUSH, PEBBLE }
 ## count) is byte-unchanged. SWORDSMAN is the default/common type; an entry with no enemy_type (a
 ## pre-variety persisted chunk) falls back to SWORDSMAN at spawn. NEVER renumber -- these persist to disk.
 enum EnemyType { SWORDSMAN, TANK, CHARGER, SPITTER }
+
+## A Kind.BOULDER entry's coarse size (rock -> hill -> mountain) rides in its `state` as a small
+## serializable int (state["size"]), the SAME shape as an ENEMY entry's enemy_type: DERIVED
+## DETERMINISTICALLY by ChunkGenerator from a hash of the entry -- NOT from a seeded-rng draw -- so the
+## scatter's draw ORDER (and every per-Kind count) stays byte-unchanged. The concrete enum lives on the
+## entity (Boulder.Size); ChunkContent maps the int back at spawn. A missing size falls back to the
+## smallest (rock). NEVER renumber the Boulder.Size values -- they persist to disk with the entry.
 
 ## This chunk's grid coordinate (WorldScale.world_to_chunk space).
 var coord: Vector2i = Vector2i.ZERO

@@ -87,6 +87,7 @@ func run(ctx: TestContext) -> void:
 	var exp_enemy: int = 0
 	var exp_bush: int = 0
 	var exp_pebble: int = 0
+	var exp_boulder: int = 0
 	for coord in manager.active_coords():
 		var cd: ChunkData = ChunkGenerator.generate(coord, manager.world_seed)
 		for e in cd.entries:
@@ -96,22 +97,26 @@ func run(ctx: TestContext) -> void:
 				ChunkData.Kind.ENEMY: exp_enemy += 1
 				ChunkData.Kind.BUSH: exp_bush += 1
 				ChunkData.Kind.PEBBLE: exp_pebble += 1
+				ChunkData.Kind.BOULDER: exp_boulder += 1
 	var got_tree: int = 0
 	var got_rock: int = 0
 	var got_enemy: int = 0
 	var got_bush: int = 0
 	var got_pebble: int = 0
+	var got_boulder: int = 0
 	for container in manager.get_children():
 		for child in container.get_children():
-			# Order matters: Rock extends StaticBody2D, so test Rock first; Enemy is a
-			# CharacterBody2D; a Bush and a Pebble are each a plain Node2D (no collision --
-			# checked before the StaticBody2D fallthrough); Tree has no class_name (native-class
-			# clash) so it is
-			# the remaining StaticBody2D content.
+			# Order matters: Rock AND Boulder both extend StaticBody2D, so test those explicit
+			# class_names FIRST; Enemy is a CharacterBody2D; a Bush and a Pebble are each a plain
+			# Node2D (no collision -- checked before the StaticBody2D fallthrough); Tree has no
+			# class_name (native-class clash) so it is the REMAINING StaticBody2D content, matched
+			# last. Boulder MUST be tested before that fallthrough or it would miscount as a tree.
 			if child is Enemy:
 				got_enemy += 1
 			elif child is Rock:
 				got_rock += 1
+			elif child is Boulder:
+				got_boulder += 1
 			elif child is Bush:
 				got_bush += 1
 			elif child is Pebble:
@@ -133,6 +138,12 @@ func run(ctx: TestContext) -> void:
 	ctx.check(got_pebble == exp_pebble and got_pebble >= 1,
 		"real Pebble instances match generated entries and are present (" + str(got_pebble) + " == " + str(exp_pebble) + ", >=1) -- the E4 PEBBLE Kind streams like BUSH",
 		"Pebble instance count wrong (" + str(got_pebble) + " vs expected " + str(exp_pebble) + ")")
+	# Boulders are SPARSE (a chance-gated 1-2 cluster), so the active set may legitimately hold zero --
+	# assert EXACT match to the generator rather than >= 1 (presence across a region is proven separately
+	# in tests/test_boulder.gd). Boulder streams like the other Kinds but is UNMINEABLE, permanent terrain.
+	ctx.check(got_boulder == exp_boulder,
+		"real Boulder instances match generated entries (" + str(got_boulder) + " == " + str(exp_boulder) + ") -- the UNMINEABLE BOULDER Kind streams like the rest, drawn LAST",
+		"Boulder instance count wrong (" + str(got_boulder) + " vs expected " + str(exp_boulder) + ")")
 
 	# --- C3a: a mineral instance is CONFIGURED from its entry.state ----------
 	# Drive a synthetic MINERAL entry through the SAME ChunkContent.spawn() the manager
@@ -564,13 +575,14 @@ func _find_tree_chunk(seed_val: int, avoid: Vector2i) -> Vector2i:
 
 
 ## The live Tree instances directly under a chunk container. A Tree has no class_name (native-class
-## clash), so it is the StaticBody2D content that is NOT a Rock (the only other StaticBody2D Kind).
+## clash), so it is the StaticBody2D content that is NOT a Rock and NOT a Boulder (the other two
+## StaticBody2D Kinds -- Boulder was added by Environment #2 and must be excluded here too).
 func _trees_in(container: Node2D) -> Array:
 	var out: Array = []
 	if container == null:
 		return out
 	for child in container.get_children():
-		if child is StaticBody2D and not (child is Rock):
+		if child is StaticBody2D and not (child is Rock) and not (child is Boulder):
 			out.append(child)
 	return out
 

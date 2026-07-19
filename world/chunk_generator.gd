@@ -23,6 +23,12 @@ const BUSH_MAX: int = 3
 ## Forageable pebbles per chunk (E4): small stones gathered without a pickaxe. randi_range inclusive.
 const PEBBLE_MIN: int = 1
 const PEBBLE_MAX: int = 4
+## Probability a chunk seeds any BOULDER terrain at all (Environment #2). Boulders are large UNMINEABLE
+## obstacles, not litter, so most chunks stay boulder-free -- this gate keeps them SPARSE.
+const BOULDER_CHANCE: float = 0.35
+## When a chunk DOES seed boulders, how many -- a small 1-2 cluster. randi_range inclusive.
+const BOULDER_MIN: int = 1
+const BOULDER_MAX: int = 2
 ## Starting integrity baked into a fresh mineral's mutable state.
 const FRESH_MINERAL_INTEGRITY: int = 4
 
@@ -88,6 +94,24 @@ static func generate(coord: Vector2i, world_seed: int) -> ChunkData:
 			"state": {},
 		})
 
+	# Boulders are drawn LAST (Environment #2), AFTER the pebble loop: appending here keeps every existing
+	# TREE/MINERAL/ENEMY/BUSH/PEBBLE rng draw at the SAME position in the seeded sequence, so their
+	# deterministic counts/positions are byte-unchanged -- only these new draws are consumed, and nothing
+	# is drawn after them. Boulders are SPARSE: the chance gate leaves most chunks boulder-free, and a
+	# seeded chunk gets a small 1-2 cluster of large obstacles. Each boulder's SIZE is DERIVED (not drawn)
+	# from a pure hash of (coord, local_pos) -- see _derive_boulder_size -- consuming ZERO rng, exactly
+	# like _derive_enemy_type, so it cannot shift the sequence either; only which size a boulder becomes
+	# varies.
+	if rng.randf() < BOULDER_CHANCE:
+		var boulder_count: int = rng.randi_range(BOULDER_MIN, BOULDER_MAX)
+		for _i in boulder_count:
+			var b_local: Vector2 = _rand_local(rng)
+			cd.entries.append({
+				"type": ChunkData.Kind.BOULDER,
+				"local_pos": b_local,
+				"state": {"size": _derive_boulder_size(coord, b_local)},
+			})
+
 	return cd
 
 
@@ -128,6 +152,30 @@ static func _derive_enemy_type(coord: Vector2i, local_pos: Vector2) -> int:
 	elif bucket < 9:
 		return ChunkData.EnemyType.CHARGER     # 7-8 -> 20%
 	return ChunkData.EnemyType.SPITTER         # 9   -> 10%
+
+
+## DETERMINISTICALLY pick a Kind.BOULDER entry's Boulder.Size (rock/hill/mountain) WITHOUT consuming the
+## seeded rng -- the SAME determinism-trap fix as _derive_enemy_type. The boulder draws already sit LAST
+## in generate(), but folding the already-decided (coord, local_pos) through a pure integer hash (no rng
+## touched) keeps the idiom identical to enemy_type and means the size can never perturb a draw. A
+## weighted bucket over hash % 10 keeps small ROCKs common and big MOUNTAINs rare -- a mountain is a
+## landmark, not the norm: ROCK 60% (0-5), HILL 30% (6-8), MOUNTAIN 10% (9). Same inputs -> same size on
+## every machine (integer math, no Time/OS input), matching generate()'s purity contract.
+static func _derive_boulder_size(coord: Vector2i, local_pos: Vector2) -> int:
+	var h: int = 0x27D4EB2F165667C5
+	h ^= coord.x * 19349663
+	h ^= coord.y * 83492791
+	h ^= int(local_pos.x) * 73856093
+	h ^= int(local_pos.y) * 2654435761
+	h ^= h >> 27
+	var bucket: int = h % 10
+	if bucket < 0:
+		bucket += 10  # GDScript % keeps the sign of the dividend; fold negatives into [0, 10)
+	if bucket < 6:
+		return Boulder.Size.ROCK       # 0-5 -> 60%
+	elif bucket < 9:
+		return Boulder.Size.HILL       # 6-8 -> 30%
+	return Boulder.Size.MOUNTAIN       # 9   -> 10%
 
 
 ## A random position strictly within the chunk's local box [0, CHUNK_PX).

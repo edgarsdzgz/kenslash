@@ -1,0 +1,19 @@
+[gd_scene load_steps=3 format=4]
+
+[ext_resource type="Script" path="res://world/boulder.gd" id="1_boulder"]
+
+[sub_resource type="RectangleShape2D" id="RectangleShape2D_foot"]
+size = Vector2(56, 34)
+
+[node name="Boulder" type="StaticBody2D"]
+collision_layer = 1
+collision_mask = 0
+script = ExtResource("1_boulder")
+
+[node name="Body" type="Polygon2D" parent="."]
+color = Color(0.47, 0.47, 0.51, 1)
+polygon = PackedVector2Array(0, -54, 9, -37.8, 28, -12.96, 15.4, 0, -15.4, 0, -28, -12.96, -9, -37.8)
+
+[node name="CollisionShape2D" type="CollisionShape2D" parent="."]
+position = Vector2(0, -17)
+shape = SubResource("RectangleShape2D_foot")

@@ -42,6 +42,11 @@ const PEBBLE_SCENE: PackedScene = preload("res://world/pebble.tscn")
 ## delta the ChunkManager snapshots from live Drop children on unload (drop_entry, below) and
 ## respawns here on reload, its item re-load()ed by resource_path and its aging RESUMED.
 const DROP_SCENE: PackedScene = preload("res://world/drop.tscn")
+## The UNMINEABLE boulder scene (Environment #2). Like BUSH/PEBBLE it is a generated Kind, but it is
+## PERMANENT terrain: a solid StaticBody2D with NO Hurtbox/durability/drops, so it can never be destroyed
+## or `gone`-flagged -- it simply respawns byte-identically every reload. Its coarse SIZE (rock/hill/
+## mountain) rides in the entry's state["size"] and is applied at spawn, like the mineral's integrity.
+const BOULDER_SCENE: PackedScene = preload("res://world/boulder.tscn")
 
 ## Hardness of a streamed mineral. The soft, mineable-with-the-pickaxe stone (matches
 ## world/rock.tscn's default): over = 6 - pickaxe.power 7 <= 0 -> Band A, so it chips.
@@ -127,6 +132,15 @@ static func spawn(entry: Dictionary) -> Node2D:
 			# A forageable pebble (E4): like BUSH, no per-entry state -- its single Stone yield is
 			# authored on the scene's exports. Positioned at local_pos by the caller.
 			node = PEBBLE_SCENE.instantiate()
+		ChunkData.Kind.BOULDER:
+			# A large UNMINEABLE terrain obstacle (Environment #2): set its coarse SIZE from the entry's
+			# state BEFORE the caller add_child()s it, so boulder.gd._ready() builds the matching
+			# silhouette + solid footprint (the same pre-add configure the MINERAL case uses for
+			# integrity/hardness). A missing size (a pre-boulder persisted chunk) falls back to ROCK.
+			var boulder: Boulder = BOULDER_SCENE.instantiate()
+			var b_state: Dictionary = entry["state"]
+			boulder.size = int(b_state.get("size", Boulder.Size.ROCK))
+			node = boulder
 		_:
 			node = Node2D.new()
 
@@ -195,6 +209,11 @@ static func capture(node: Node, entry: Dictionary) -> bool:
 			# A pebble, like a bush, carries NO partial state: intact (a live node -> nothing to
 			# capture) or gathered (queue_freed -> the ChunkManager's is_instance_valid path flags
 			# the entry `gone`). So capture is always a no-op here too.
+			return false
+		ChunkData.Kind.BOULDER:
+			# A boulder is UNMINEABLE, permanent terrain: it can never be damaged, yielded, or freed, so
+			# there is NO durable delta to write back and it is never `gone` -- it respawns byte-identically
+			# from the deterministic baseline every reload. So capture is always a no-op here.
 			return false
 		_:
 			return false
