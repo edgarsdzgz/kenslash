@@ -13,3 +13,4 @@ max_durability = 40
 harvest_type = 2
 blade_color = Color(0.55, 0.55, 0.6, 1)
 blade_shape = PackedVector2Array(-16, -2, 5, -2, 6, -13, 10, -11, 10, -3, 13, -2, 13, 2, 10, 3, 10, 11, 6, 13, 5, 2, -16, 2)
+weight = 3.0

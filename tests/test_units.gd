@@ -15,6 +15,7 @@ class_name TestUnits extends RefCounted
 func run(ctx: TestContext) -> void:
 	_unit_tests(ctx)
 	_inventory_unit_tests(ctx)
+	_weight_unit_tests(ctx)
 	_chunk_unit_tests(ctx)
 
 
@@ -232,6 +233,68 @@ func _inventory_unit_tests(ctx: TestContext) -> void:
 	ctx.check(gate_inv.equipped_item() == WOOD and gate_inv.equipped_tool() == null,
 		"equip gating: a resource stack -> equipped_item() is the item, equipped_tool() is null (unarmed)",
 		"equip gating wrong (item=" + str(gate_inv.equipped_item()) + " tool=" + str(gate_inv.equipped_tool()) + ")")
+
+
+func _weight_unit_tests(ctx: TestContext) -> void:
+	# --- design-weight.md: per-unit weight, total_weight/weight_ratio, encumbrance_factor -----
+	var WOOD: ItemData = load("res://data/wood.tres")
+	var STONE: ItemData = load("res://data/stone.tres")
+	ctx.check(WOOD.weight == 0.5 and STONE.weight == 1.0 and Player.SWORD_DATA.weight == 2.0,
+		"per-unit weights load from .tres (wood 0.5, stone 1.0, sword 2.0)",
+		"per-unit weights wrong (wood=" + str(WOOD.weight) + " stone=" + str(STONE.weight) + " sword=" + str(Player.SWORD_DATA.weight) + ")")
+
+	# Fresh inventory weighs nothing and carries the default 50 capacity.
+	var wt_inv: Inventory = Inventory.new()
+	ctx.check(wt_inv.total_weight() == 0.0 and wt_inv.carry_capacity == 50.0,
+		"fresh Inventory: total_weight 0.0, carry_capacity default 50",
+		"fresh Inventory weight/capacity wrong (w=" + str(wt_inv.total_weight()) + " cap=" + str(wt_inv.carry_capacity) + ")")
+
+	# 10 wood (0.5) + 4 stone (1.0) = 9.0; ratio = 9.0/50. Tool weight counts too: +sword -> 11.0.
+	wt_inv.add_item(WOOD, 10)
+	wt_inv.add_item(STONE, 4)
+	ctx.check(is_equal_approx(wt_inv.total_weight(), 9.0) and is_equal_approx(wt_inv.weight_ratio(), 9.0 / 50.0),
+		"total_weight sums 10*0.5 + 4*1.0 == 9.0, weight_ratio == 9.0/50",
+		"weight math wrong (total=" + str(wt_inv.total_weight()) + " ratio=" + str(wt_inv.weight_ratio()) + ")")
+	wt_inv.add_item(Player.SWORD_DATA, 1)
+	ctx.check(is_equal_approx(wt_inv.total_weight(), 11.0),
+		"a tool's weight counts too: +sword (2.0) -> total_weight 11.0",
+		"tool weight not counted (total=" + str(wt_inv.total_weight()) + ")")
+
+	# The STARTING player loadout (sword+axe+pickaxe) weighs 2.0+2.5+3.0 == 7.5.
+	var load_inv: Inventory = Inventory.new()
+	load_inv.add_tool(Player.SWORD_DATA)
+	load_inv.add_tool(Player.AXE_DATA)
+	load_inv.add_tool(Player.PICKAXE_DATA)
+	ctx.check(is_equal_approx(load_inv.total_weight(), 7.5),
+		"starting loadout sword+axe+pickaxe weighs 7.5 (ratio 0.15 -> full-speed, no movement regression)",
+		"starting loadout weight wrong (total=" + str(load_inv.total_weight()) + ")")
+
+	# encumbrance_factor across the decided curve: capacity 10 + stone (1.0 each) so
+	# stone count == ratio*10. ratio 0.5 -> 1.0; 1.0 -> 1.0; 2.0 -> 0.4; 5.0 -> 0.4 (floor).
+	var ef_under: Inventory = Inventory.new()
+	ef_under.carry_capacity = 10.0
+	ef_under.add_item(STONE, 5)
+	ctx.check(is_equal_approx(ef_under.encumbrance_factor(), 1.0),
+		"encumbrance_factor: ratio 0.5 (under capacity) -> 1.0 (full speed)",
+		"encumbrance_factor ratio 0.5 wrong (got " + str(ef_under.encumbrance_factor()) + ")")
+	var ef_at: Inventory = Inventory.new()
+	ef_at.carry_capacity = 10.0
+	ef_at.add_item(STONE, 10)
+	ctx.check(is_equal_approx(ef_at.encumbrance_factor(), 1.0),
+		"encumbrance_factor: ratio 1.0 (exactly at capacity) -> 1.0 (full speed)",
+		"encumbrance_factor ratio 1.0 wrong (got " + str(ef_at.encumbrance_factor()) + ")")
+	var ef_twice: Inventory = Inventory.new()
+	ef_twice.carry_capacity = 10.0
+	ef_twice.add_item(STONE, 20)
+	ctx.check(is_equal_approx(ef_twice.encumbrance_factor(), 0.4),
+		"encumbrance_factor: ratio 2.0 -> 0.4 (reaches the floor)",
+		"encumbrance_factor ratio 2.0 wrong (got " + str(ef_twice.encumbrance_factor()) + ")")
+	var ef_far: Inventory = Inventory.new()
+	ef_far.carry_capacity = 10.0
+	ef_far.add_item(STONE, 50)
+	ctx.check(is_equal_approx(ef_far.encumbrance_factor(), 0.4),
+		"encumbrance_factor: ratio 5.0 -> 0.4 (clamped to the floor, never lower)",
+		"encumbrance_factor ratio 5.0 wrong (got " + str(ef_far.encumbrance_factor()) + ")")
 
 
 func _chunk_unit_tests(ctx: TestContext) -> void:

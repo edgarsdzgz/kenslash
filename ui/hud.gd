@@ -27,6 +27,9 @@ const ICON_FIT: float = 0.75
 ## (never Time/OS wall-clock) so it advances identically headless.
 const SELECTION_HOLD: float = 2.0
 const SELECTION_FADE: float = 0.4
+## Weight readout tints (design-weight.md "HUD"): normal vs a warning tint applied over capacity.
+const WEIGHT_NORMAL_COLOR: Color = Color(1.0, 1.0, 1.0, 1.0)
+const WEIGHT_OVER_COLOR: Color = Color(1.0, 0.45, 0.4, 1.0)
 
 var _player: Player = null
 var _health: HealthComponent = null
@@ -53,6 +56,8 @@ var _slot_icons: Array[Polygon2D] = []
 @onready var _health_label: Label = $Backdrop/Column/HealthLabel
 @onready var _health_bar: ProgressBar = $Backdrop/Column/HealthBar
 @onready var _tool_label: Label = $Backdrop/Column/ToolLabel
+## Carried-weight readout below the tool label (design-weight.md "HUD"); refreshed each frame.
+@onready var _weight_label: Label = $Backdrop/Column/WeightLabel
 ## The hotbar row lives in its OWN bottom-center anchor (Minecraft-style), separate from the
 ## top-left health/tool Backdrop. A CenterContainer anchored to the bottom edge keeps it
 ## horizontally centered and re-centers automatically on window resize -- no manual math.
@@ -100,9 +105,24 @@ func _on_player_damaged(_amount: int, _current: int) -> void:
 func _refresh() -> void:
 	_refresh_health()
 	_refresh_tool()
+	_refresh_weight()
 	_refresh_hotbar()
 	_refresh_prompt()
 	_refresh_selection()
+
+
+## Carried-weight readout (design-weight.md "HUD"): "Wt <carried> / <capacity>", warning-tinted
+## OVER capacity (weight_ratio() > 1.0). Presentation only -- state reads, no game logic added.
+func _refresh_weight() -> void:
+	var inv: Inventory = _player.inventory
+	_weight_label.text = "Wt %s / %s" % [_fmt_weight(inv.total_weight()), _fmt_weight(inv.carry_capacity)]
+	_weight_label.modulate = WEIGHT_OVER_COLOR if inv.weight_ratio() > 1.0 else WEIGHT_NORMAL_COLOR
+
+
+## Trim a weight for display: a whole value reads "10" (not str()'s "10.0"), a fractional one keeps
+## its decimals ("12.5") -- the design "Wt 12.5 / 50" format. Godot's % has no %g to do this.
+func _fmt_weight(v: float) -> String:
+	return str(int(v)) if v == floorf(v) else str(v)
 
 
 ## Item-name selection popup (Change 2): when the equipped slot changes -- a new index, OR the
@@ -323,6 +343,16 @@ func prompt_text() -> String:
 
 func tool_text() -> String:
 	return _tool_label.text
+
+
+## The carried-weight readout currently SHOWN (e.g. "Wt 12.5 / 50"), for the headless HUD test.
+func weight_text() -> String:
+	return _weight_label.text
+
+
+## Whether the weight readout is in its OVER-capacity warning tint -- for the headless HUD test.
+func weight_over() -> bool:
+	return _weight_label.modulate == WEIGHT_OVER_COLOR
 
 
 ## The item-name selection popup currently SHOWN, or "" once it has faded/hidden. Reads the

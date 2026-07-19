@@ -34,6 +34,18 @@ var equipped_index: int = 0
 ## True = unlocked: scroll/Q/E wrap across the WHOLE inventory. Never affects
 ## number-key direct jumps (equip_index), which are always unrestricted by lock.
 var hotbar_unlocked: bool = false
+## Carry-capacity stat (design-weight.md, DECIDED default 50): the carried weight at/under
+## which the player moves at full speed. Over it, encumbrance_factor() slows movement (never
+## blocks pickup). Lives on the Inventory so the whole weight model travels with the item
+## data (the player reads it via its `inventory` facade); tunable per save/difficulty later.
+var carry_capacity: float = 50.0
+
+## Encumbrance floor (design-weight.md): the LOWEST speed multiplier over-capacity can impose,
+## so hauling too much slows you but never fully stops you. Reached at ratio 2.0 and beyond.
+const ENCUMBRANCE_FLOOR: float = 0.4
+## Encumbrance slope: how sharply the speed multiplier drops per unit of overage (ratio - 1.0).
+## 0.6 tuned so ratio 2.0 (twice capacity) hits ENCUMBRANCE_FLOOR exactly: 1 - 0.6*(2-1) = 0.4.
+const ENCUMBRANCE_OVER_PENALTY: float = 0.6
 
 
 ## Leading N slots that are live hotbar slots, capped at the 10-key ring.
@@ -124,6 +136,38 @@ func add_item(item: ItemData, count: int = 1) -> int:
 ## Returns false if no empty slot remained (inventory full).
 func add_tool(tool: ToolData) -> bool:
 	return add_item(tool, 1) == 0
+
+
+## Total carried weight (design-weight.md "Carried weight"): the sum over ALL slots -- the
+## hotbar window AND the background slots -- of `item.weight * count`. Weight is about what you
+## HAUL, not what is equipped, so every stack counts. Empty slots contribute nothing (guarded).
+func total_weight() -> float:
+	var sum: float = 0.0
+	for i in range(slots.size()):
+		var item: ItemData = item_at(i)
+		if item != null:
+			sum += item.weight * count_at(i)
+	return sum
+
+
+## Carried weight as a FRACTION of carry_capacity (design-weight.md): 1.0 == exactly at capacity,
+## > 1.0 == over (encumbered). Guards a non-positive capacity by returning 0.0 (no div-by-zero,
+## and "no capacity set" reads as unencumbered rather than infinitely over).
+func weight_ratio() -> float:
+	if carry_capacity <= 0.0:
+		return 0.0
+	return total_weight() / carry_capacity
+
+
+## Movement speed multiplier from encumbrance (design-weight.md "Over-capacity behavior"). At or
+## under capacity (ratio <= 1.0) -> 1.0 (full speed). Over capacity the multiplier drops LINEARLY
+## with the overage, clamped to ENCUMBRANCE_FLOOR so the player is slowed but never fully stopped:
+## factor = clamp(1 - OVER_PENALTY*(ratio - 1), FLOOR, 1). player.gd multiplies its walk target by
+## this (walking ONLY -- knockback/lunge impulses are never scaled). Kept here so player.gd stays
+## minimal and the whole weight model lives in one place.
+func encumbrance_factor() -> float:
+	var ratio: float = weight_ratio()
+	return clampf(1.0 - ENCUMBRANCE_OVER_PENALTY * (ratio - 1.0), ENCUMBRANCE_FLOOR, 1.0)
 
 
 ## DEFERRED this slice, per the user ("if we hit 'sort' we will develop that

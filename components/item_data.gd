@@ -34,5 +34,10 @@ extends Resource
 ## still-shapeless item shows the letter glyph as before. Keep it a simple, non-self-
 ## intersecting polygon. Presentation only -- never read by gameplay.
 @export var icon_shape: PackedVector2Array = PackedVector2Array()
+## Per-UNIT weight (design-weight.md "Model"): the weight of ONE of this item. A stack
+## weighs `weight * count`, and the Inventory sums it across ALL slots into total_weight()
+## for the carry-capacity encumbrance. Tools inherit this (ToolData IS an ItemData) and
+## carry weight too. 0.0 = weightless (the safe default for any item that has not set one).
+@export var weight: float = 0.0
 
 # Verified against: Godot 4.7.1 (2026-07-19)

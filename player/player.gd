@@ -268,7 +268,10 @@ func _gather_input() -> FrameInput:
 func _simulate(delta: float, input: FrameInput) -> void:
 	if input.move != Vector2.ZERO:
 		facing = input.move
-		_move_velocity = _move_velocity.move_toward(input.move * max_speed, acceleration * delta)
+		# Encumbrance (design-weight.md): scale ONLY the walk target speed by the carry-capacity
+		# factor (1.0 at/under capacity, down to a floor when overloaded). Knockback/lunge are
+		# impulses added below, never scaled. The weight math lives in Inventory, not here.
+		_move_velocity = _move_velocity.move_toward(input.move * max_speed * inventory.encumbrance_factor(), acceleration * delta)
 	else:
 		_move_velocity = _move_velocity.move_toward(Vector2.ZERO, friction * delta)
 

@@ -170,6 +170,28 @@ func run(ctx: TestContext) -> void:
 		"selecting an EMPTY slot shows no selection popup",
 		"empty-slot selection wrongly showed a popup (\"" + hud.selection_text() + "\")")
 
+	# --- design-weight.md Phase 3: carried-weight HUD readout + over-capacity warning tint -----
+	# State here: the starting loadout (sword+axe+pickaxe = 7.5) + the 5 Wood added above (2.5) =
+	# 10.0 carried against the default capacity 50 -> a normal (under-capacity) tint.
+	ctx.check(hud.weight_text() == "Wt 10 / 50" and not hud.weight_over(),
+		"HUD weight readout shows carried/cap 'Wt 10 / 50' in the normal (under-capacity) tint (\"" + hud.weight_text() + "\")",
+		"HUD weight readout wrong under capacity (\"" + hud.weight_text() + "\" over=" + str(hud.weight_over()) + ")")
+
+	# Push OVER capacity: +45 Stone (45.0) -> 55.0 / 50, ratio > 1 -> the warning tint engages.
+	var stone_item: ItemData = load("res://data/stone.tres")
+	player.inventory.add_item(stone_item, 45)
+	await ctx.settle_idle()
+	ctx.check(hud.weight_text() == "Wt 55 / 50" and hud.weight_over(),
+		"HUD weight readout flips to the warning state over capacity ('Wt 55 / 50', tinted)",
+		"HUD weight readout did not warn over capacity (\"" + hud.weight_text() + "\" over=" + str(hud.weight_over()) + ")")
+
+	# Back UNDER capacity by raising the carry_capacity stat (read live): 55.0 / 100 -> normal tint.
+	player.inventory.carry_capacity = 100.0
+	await ctx.settle_idle()
+	ctx.check(hud.weight_text() == "Wt 55 / 100" and not hud.weight_over(),
+		"HUD weight readout returns to the normal tint once back under capacity ('Wt 55 / 100')",
+		"HUD weight readout did not clear the warning under capacity (\"" + hud.weight_text() + "\" over=" + str(hud.weight_over()) + ")")
+
 	sw.queue_free()
 	await ctx.settle_idle()
 
