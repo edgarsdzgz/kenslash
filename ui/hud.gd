@@ -31,9 +31,10 @@ const WEIGHT_TIER_COLORS: Array[Color] = [
 ]
 ## Tier NAME appended to the weight readout when encumbered (parallel to the tier enum); NORMAL is "".
 const WEIGHT_TIER_NAMES: Array[String] = ["", "Overencumbered", "Superencumbered", "Ultraencumbered"]
-## Icon rotation for WEAPON (tool blade) hotbar icons only -- 45 degrees, so the blade reads as a
-## canted weapon rather than lying flat. Applied to the POINTS before the bbox-fit so it still fits.
-const TOOL_ICON_ROTATION: float = PI / 4.0
+## Icon rotation for WEAPON (tool blade) hotbar icons only -- 45 degrees COUNTERclockwise, so the
+## blade cants up toward the top-right (screen +y is down, so a negative angle rotates CCW).
+## Applied to the POINTS before the bbox-fit so it still fits.
+const TOOL_ICON_ROTATION: float = -PI / 4.0
 ## Stamina bar tints (design-controls.md): the normal fill, and a warning red once the player is
 ## low on stamina (< 25%) -- the stamina meter's parallel to the health bar.
 const STAMINA_COLOR: Color = Color(0.3, 0.75, 0.95, 1.0)
