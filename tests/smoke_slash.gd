@@ -130,8 +130,11 @@ func _run() -> void:
 	# --- Swordsman dueler: telegraphed combos + reactive dodge (cooldown+punish) + spacing + escalation ---
 	await TestSwordsman.new().run(ctx)
 
+	# --- Charger dash-bruiser: TRACK/WINDUP/CHARGE/RECOVER + locked straight-line overshoot ---
+	await TestCharger.new().run(ctx)
+
 	if ctx.all_pass:
-		print("[PASS] smoke_slash: combat + combo + death + bodies + input seam + durability + streaming + playable + hud + encumbrance + harvest + pickup + lifetime + drop-persist + forage + pebble + controls + tank + swordsman -- all passed")
+		print("[PASS] smoke_slash: combat + combo + death + bodies + input seam + durability + streaming + playable + hud + encumbrance + harvest + pickup + lifetime + drop-persist + forage + pebble + controls + tank + swordsman + charger -- all passed")
 		quit(0)
 	else:
 		_fail("one or more assertions failed")
