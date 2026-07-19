@@ -112,6 +112,9 @@ func _run() -> void:
 	# --- XP award hooks (kill/fell/mine/forage) + level boundary + HUD readout (self-contained, remote) ---
 	await TestXpAward.new().run(ctx)
 
+	# --- Talents Track A: talent-tree unlock/prereq/spend validation (self-contained: pure instances) ---
+	await TestTalents.new().run(ctx)
+
 	# --- Boulder terrain Environment #2 (self-contained: own holders/players/boulders + ChunkManager) ---
 	await TestBoulder.new().run(ctx)
 
