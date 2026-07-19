@@ -210,6 +210,18 @@ func run(ctx: TestContext) -> void:
 		"HUD weight readout returns to the normal (NORMAL tier) state once back under capacity ('Wt 62.6 kg / 100 kg')",
 		"HUD weight readout did not clear the warning under capacity (\"" + hud.weight_text() + "\" over=" + str(hud.weight_over()) + " tier=" + str(hud.weight_tier()) + ")")
 
+	# --- design-controls.md: the stamina bar reflects the player's stamina ratio + low tint --------
+	# The player starts at full stamina, so the bar reads full and un-warned.
+	ctx.check(is_equal_approx(hud.stamina_bar_ratio(), 1.0) and not hud.stamina_bar_low(),
+		"HUD stamina bar starts full and un-warned (ratio " + str(hud.stamina_bar_ratio()) + ")",
+		"HUD stamina bar not full/normal at start (ratio " + str(hud.stamina_bar_ratio()) + " low=" + str(hud.stamina_bar_low()) + ")")
+	# Drain the pool low; the per-frame HUD pass shows the reduced fill and the warning tint (< 25%).
+	player._stamina.drain(85.0)  # 100 -> 15 -> ratio 0.15 < 0.25
+	await ctx.settle_idle()
+	ctx.check(hud.stamina_bar_ratio() < 0.25 and hud.stamina_bar_low(),
+		"HUD stamina bar drops and turns the low/warning tint under 25% (ratio " + str(hud.stamina_bar_ratio()) + ")",
+		"HUD stamina bar did not reflect low stamina (ratio " + str(hud.stamina_bar_ratio()) + " low=" + str(hud.stamina_bar_low()) + ")")
+
 	sw.queue_free()
 	await ctx.settle_idle()
 

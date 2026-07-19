@@ -93,9 +93,8 @@ var _interaction: Interaction = null  ## E4 (components/interaction.gd): pure-lo
 var _pickup: Pickup = null  ## E3a (components/pickup.gd): magnetic auto-pickup RefCounted (node-free like _equipment), made in _ready.
 var _combat: Combat = null  ## Sword-combo subsystem (components/combat.gd): owns _combo_index/_attacking/the swing tween, made in _ready.
 var _avatar: Avatar = null  ## Four-facing look (components/avatar.gd): RefCounted like the others, made in _ready; drives Body shape/flip + Face per facing.
-## Controlled movement velocity, kept separate from knockback so the two do not
-## compound frame to frame.
-var _move_velocity: Vector2 = Vector2.ZERO
+var _locomotion: Locomotion = null  ## Movement + sprint + dodge subsystem (components/locomotion.gd): owns _move_velocity + the dodge dash, made in _ready. RefCounted like the others.
+var _stamina: Stamina = null  ## Stamina pool (components/stamina.gd): sprint drains it, a dodge spends it; the HUD reads it via the facade below. RefCounted, made in _ready.
 ## Decaying knockback impulse, added on top of movement. Also carries the lunge.
 var _knockback: Vector2 = Vector2.ZERO
 ## Looping tween that blinks the avatar while invincible; null when not blinking.
@@ -166,6 +165,20 @@ var _attacking: bool:
 		_combat._attacking = value
 
 
+# --- Locomotion facade ----------------------------------------------------------------
+# The controlled movement velocity moved to components/locomotion.gd (with sprint + dodge), but
+# tests and _respawn_in_place still read/write player._move_velocity -- forward get+set to the
+# subsystem so they work unchanged (accessed only after _ready, like the Combat facade).
+
+## Controlled movement velocity (walk / sprint / dash), owned by the Locomotion. Forwarded so
+## player._move_velocity reads (encumbrance/seam tests) and writes (_respawn_in_place) still work.
+var _move_velocity: Vector2:
+	get:
+		return _locomotion._move_velocity
+	set(value):
+		_locomotion._move_velocity = value
+
+
 func _ready() -> void:
 	# The enemy AI resolves its target through this group, so it never needs a
 	# hard node path to the player.
@@ -203,6 +216,14 @@ func _ready() -> void:
 	# up/down rectangle. _simulate calls _avatar.update() each frame to pick the facing look.
 	_avatar = Avatar.new()
 	_avatar.setup(_body, _face)
+	# Stamina pool + Locomotion (design-controls.md). Both RefCounted, made here like the components
+	# above (a Node would perturb the streaming node-count / orphan baseline). Stamina is created
+	# FIRST so it can be "called down" into Locomotion, which drains it on sprint and spends it on a
+	# dodge; Locomotion also takes the Hurtbox (for dash i-frames) and the player itself (movement
+	# tunables, encumbrance, collision_mask for enemy phase-through).
+	_stamina = Stamina.new()
+	_locomotion = Locomotion.new()
+	_locomotion.setup(self, _hurtbox, _stamina)
 
 
 ## Equip a tool (facade -> Equipment.equip_tool). Directly callable -- a headless test
@@ -222,6 +243,14 @@ func interaction_prompt() -> String:
 	return _interaction.current_prompt()
 func interact() -> void:
 	_interaction.try_interact(self)
+
+
+## Stamina facade (design-controls.md) -> the Stamina pool: the HUD reads these each frame to fill
+## and tint the stamina bar. Presentation-only reads; the pool is driven by Locomotion.
+func stamina_ratio() -> float:
+	return _stamina.ratio()
+func stamina_low() -> bool:
+	return _stamina.is_low()
 
 
 func _physics_process(delta: float) -> void:
@@ -260,6 +289,10 @@ func _gather_input() -> FrameInput:
 	# are not sqrt(2) faster. Do NOT normalize it again.
 	fi.move = Input.get_vector("move_left", "move_right", "move_up", "move_down")
 	fi.attack = Input.is_action_just_pressed("attack")
+	# Sprint is HELD (level), dodge is edge-triggered (a tap) -- design-controls.md. Both flow
+	# through the FrameInput seam so a peer/AI/test drives them via input_override just like move.
+	fi.sprint = Input.is_action_pressed("sprint")
+	fi.dodge = Input.is_action_just_pressed("dodge")
 	return fi
 
 
@@ -268,12 +301,6 @@ func _gather_input() -> FrameInput:
 func _simulate(delta: float, input: FrameInput) -> void:
 	if input.move != Vector2.ZERO:
 		facing = input.move
-		# Encumbrance (design-weight.md): scale ONLY the walk target speed by the carry-capacity
-		# factor (1.0 at/under capacity, down to a floor when overloaded). Knockback/lunge are
-		# impulses added below, never scaled. The weight math lives in Inventory, not here.
-		_move_velocity = _move_velocity.move_toward(input.move * max_speed * inventory.encumbrance_factor(), acceleration * delta)
-	else:
-		_move_velocity = _move_velocity.move_toward(Vector2.ZERO, friction * delta)
 
 	# The Body's D-shape is a LEFT/RIGHT FLIP via scale.x = +/-1 (a true horizontal
 	# mirror around the vertical axis). NOT rotation: a 180deg rotation flips the
@@ -290,8 +317,15 @@ func _simulate(delta: float, input: FrameInput) -> void:
 	# up/down swaps in the rectangle body (and, facing DOWN, shows the face) -- see avatar.gd.
 	_avatar.update(facing, side_facing)
 
+	# Locomotion owns the controlled velocity now (components/locomotion.gd): the encumbrance-scaled
+	# walk, the hold-sprint x1.5 multiply (stacked on encumbrance), and the dodge dash (i-frames +
+	# enemy phase-through). It returns whether it consumed stamina this frame (sprinting or dashing)
+	# so the Stamina pool can gate regen. Encumbrance still scales the walk speed -- inside Locomotion.
+	var consuming: bool = _locomotion.simulate(delta, input, facing)
+	_stamina.tick(delta, consuming)
+
 	# Controlled movement plus a decaying knockback impulse (also the lunge slide).
-	velocity = _move_velocity + _knockback
+	velocity = _locomotion._move_velocity + _knockback
 	move_and_slide()
 	_knockback = _knockback.move_toward(Vector2.ZERO, knockback_decay * delta)
 
@@ -387,7 +421,9 @@ func _respawn_in_place() -> void:
 	global_position = respawn_point
 	_health.revive()
 	_knockback = Vector2.ZERO
-	_move_velocity = Vector2.ZERO
+	# Reset locomotion too: clears _move_velocity AND, if a dodge dash was live, restores the
+	# collision_mask + drops the dash i-frames so a respawn mid-dash leaves no phased/invuln state.
+	_locomotion.reset()
 	velocity = Vector2.ZERO
 	_combo_index = 0
 	_attacking = false
@@ -410,4 +446,4 @@ func _respawn_in_place() -> void:
 func collect(item: ItemData, count: int) -> int:
 	return _pickup.collect(self, item, count)
 
-# Verified against: Godot 4.7.1 (2026-07-18)
+# Verified against: Godot 4.7.1 (2026-07-19)

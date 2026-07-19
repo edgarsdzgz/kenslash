@@ -41,6 +41,12 @@ signal invincibility_ended
 @export var invincibility_time: float = 0.1
 
 var is_invincible: bool = false
+## Dodge i-frames (design-controls.md): set true by the player's locomotion for the DURATION of a
+## dodge dash so a hit landing mid-dash deals 0 damage. Kept SEPARATE from is_invincible / the
+## InvincibilityTimer on purpose -- the dash toggles only this flag, so it never clobbers a normal
+## post-hit i-frame window (its timer keeps running untouched). Default false -> enemies, which
+## never set it, are unaffected. The damage guard below honors it exactly like is_invincible.
+var dodge_invincible: bool = false
 
 @onready var _timer: Timer = $InvincibilityTimer
 
@@ -52,7 +58,9 @@ func _ready() -> void:
 
 func _on_area_entered(area: Area2D) -> void:
 	var hitbox: Hitbox = area as Hitbox
-	if hitbox == null or is_invincible:
+	# dodge_invincible is the dash i-frame window (design-controls.md); it gates a hit exactly like
+	# a normal post-hit i-frame, but without touching is_invincible / the InvincibilityTimer.
+	if hitbox == null or is_invincible or dodge_invincible:
 		return
 
 	# Gate 1 -- tool-type gate (System 3, design-durability.md), checked BEFORE
@@ -96,4 +104,4 @@ func _on_invincibility_ended() -> void:
 	is_invincible = false
 	invincibility_ended.emit()
 
-# Verified against: Godot 4.7.1 (2026-07-17)
+# Verified against: Godot 4.7.1 (2026-07-19)

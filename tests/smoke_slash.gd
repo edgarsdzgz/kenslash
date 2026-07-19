@@ -121,8 +121,11 @@ func _run() -> void:
 	# --- Forage pebbles E4 (self-contained: own players/pebbles in a distinct remote region) -
 	await TestPebble.new().run(ctx)
 
+	# --- Player controls: stamina + sprint + dodge (self-contained: own players/enemies remote) ---
+	await TestControls.new().run(ctx)
+
 	if ctx.all_pass:
-		print("[PASS] smoke_slash: combat + combo + death + bodies + input seam + durability + streaming + playable + hud + encumbrance + harvest + pickup + lifetime + drop-persist + forage + pebble -- all passed")
+		print("[PASS] smoke_slash: combat + combo + death + bodies + input seam + durability + streaming + playable + hud + encumbrance + harvest + pickup + lifetime + drop-persist + forage + pebble + controls -- all passed")
 		quit(0)
 	else:
 		_fail("one or more assertions failed")

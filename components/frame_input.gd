@@ -11,5 +11,9 @@ extends RefCounted
 var move: Vector2 = Vector2.ZERO
 ## True on the tick the attack was pressed (edge-triggered).
 var attack: bool = false
+## True while the sprint action is HELD this tick (level-triggered -- sprint is hold-to-run).
+var sprint: bool = false
+## True on the tick the dodge action was pressed (edge-triggered, like attack).
+var dodge: bool = false
 
-# Verified against: Godot 4.7.1 (2026-07-17)
+# Verified against: Godot 4.7.1 (2026-07-19)

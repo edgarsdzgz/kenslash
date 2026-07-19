@@ -1,20 +1,14 @@
 class_name Hud
 extends CanvasLayer
-## Minimal in-game HUD for the playable loop (design-playable-loop.md D2). PRESENTATION
-## ONLY: it READS live player/inventory/health/durability state and renders it. It owns
-## NO game state, mutates NOTHING, and adds NO signals to player.gd (per
-## patterns/game-code-organization.md -- "the HUD subscribes, never polls game logic into
-## itself"). Placeholder styling (solid ColorRect slots + Labels), no art.
+## Minimal in-game HUD for the playable loop (design-playable-loop.md D2). PRESENTATION ONLY: it
+## READS live player/inventory/health/stamina/durability state and renders it -- owns NO game state,
+## mutates nothing, adds NO signals to player.gd (patterns/game-code-organization.md: "the HUD
+## subscribes, never polls game logic into itself"). Placeholder styling (ColorRect slots + Labels).
 ##
-## Update strategy (why per-frame reads are correct here, not "polling logic"):
-##  * Health -- connects to HealthComponent.damaged for the damage EVENT, AND does a light
-##    per-frame refresh. revive()/heal() emit NOTHING (design-playable-loop.md D1), so the
-##    per-frame read is the ONLY clean way to catch a respawn without growing player.gd.
-##  * Tool + durability + hotbar highlight -- the equipped tool, its DurabilityComponent,
-##    and inventory.equipped_index have no HUD-facing signal (and player.gd is at its line
-##    cap and must NOT grow a new one), so the HUD reads these presentation values each
-##    frame. Reading a handful of STATE values per frame is standard for a HUD; it adds no
-##    game LOGIC to the UI.
+## Update strategy: per-frame READS are correct here (not "polling logic"). Health also connects to
+## HealthComponent.damaged for the exact damage frame, but revive()/heal() emit nothing and the tool
+## / durability / equipped_index / stamina have no HUD-facing signal (player.gd is at its line cap),
+## so a light per-frame refresh of a few STATE values is the clean way to catch them.
 
 ## Highlight tint for the equipped hotbar slot; every other slot uses SLOT_COLOR.
 const HIGHLIGHT_COLOR: Color = Color(0.95, 0.85, 0.35, 0.95)
@@ -40,6 +34,10 @@ const WEIGHT_TIER_NAMES: Array[String] = ["", "Overencumbered", "Superencumbered
 ## Icon rotation for WEAPON (tool blade) hotbar icons only -- 45 degrees, so the blade reads as a
 ## canted weapon rather than lying flat. Applied to the POINTS before the bbox-fit so it still fits.
 const TOOL_ICON_ROTATION: float = PI / 4.0
+## Stamina bar tints (design-controls.md): the normal fill, and a warning red once the player is
+## low on stamina (< 25%) -- the stamina meter's parallel to the health bar.
+const STAMINA_COLOR: Color = Color(0.3, 0.75, 0.95, 1.0)
+const STAMINA_LOW_COLOR: Color = Color(0.9, 0.25, 0.2, 1.0)
 
 var _player: Player = null
 var _health: HealthComponent = null
@@ -65,6 +63,7 @@ var _slot_icons: Array[Polygon2D] = []
 
 @onready var _health_label: Label = $Backdrop/Column/HealthLabel
 @onready var _health_bar: ProgressBar = $Backdrop/Column/HealthBar
+@onready var _stamina_bar: ProgressBar = $Backdrop/Column/StaminaBar
 @onready var _tool_label: Label = $Backdrop/Column/ToolLabel
 ## Carried-weight readout below the tool label (design-weight.md "HUD"); refreshed each frame.
 @onready var _weight_label: Label = $Backdrop/Column/WeightLabel
@@ -114,6 +113,7 @@ func _on_player_damaged(_amount: int, _current: int) -> void:
 
 func _refresh() -> void:
 	_refresh_health()
+	_refresh_stamina()
 	_refresh_tool()
 	_refresh_weight()
 	_refresh_hotbar()
@@ -136,11 +136,10 @@ func _refresh_weight() -> void:
 	_weight_label.modulate = WEIGHT_TIER_COLORS[tier]
 
 
-## Auto g/kg formatter for a gram weight (design-weight.md REVISION 1, DECIDED): under 1000 g shows
-## whole grams ("800 g", rounded); 1000 g and up shows kilograms with up to ONE decimal, its trailing
-## ".0" trimmed so a round value reads clean -- 1000 -> "1 kg", 1500 -> "1.5 kg", 5100 -> "5.1 kg",
-## 50000 -> "50 kg", 19000 -> "19 kg". Godot's % has no %g, so the decimal is built via "%.1f" then
-## the ".0" tail is stripped by hand.
+## Auto g/kg formatter for a gram weight (design-weight.md REVISION 1): under 1000 g shows whole
+## grams ("800 g", rounded); 1000 g+ shows kg with up to one decimal, its trailing ".0" trimmed so
+## round values read clean (1000 -> "1 kg", 1500 -> "1.5 kg", 5100 -> "5.1 kg"). Godot's % has no
+## %g, so the decimal is built via "%.1f" then the ".0" tail is stripped by hand.
 func _fmt_grams(g: float) -> String:
 	if g < 1000.0:
 		return "%d g" % roundi(g)
@@ -216,6 +215,14 @@ func _refresh_health() -> void:
 	_health_label.text = "HP %d / %d" % [cur, mx]
 	_health_bar.max_value = mx
 	_health_bar.value = cur
+
+
+## Stamina bar (design-controls.md): fill from player.stamina_ratio() (0..1), warning-tinted when
+## player.stamina_low(). Presentation only -- the pool lives in the player's Stamina component.
+func _refresh_stamina() -> void:
+	_stamina_bar.max_value = 1.0
+	_stamina_bar.value = _player.stamina_ratio()
+	_stamina_bar.modulate = STAMINA_LOW_COLOR if _player.stamina_low() else STAMINA_COLOR
 
 
 ## Equipped-tool readout: the tool's display_name + its active DurabilityComponent's
@@ -375,6 +382,16 @@ func _fit_polygon(shape: PackedVector2Array, rotate: bool = false) -> PackedVect
 
 func health_text() -> String:
 	return _health_label.text
+
+
+## The stamina bar fill (0..1) currently shown -- for the headless HUD test.
+func stamina_bar_ratio() -> float:
+	return _stamina_bar.value
+
+
+## Whether the stamina bar is in the low/warning tint -- for the headless HUD test.
+func stamina_bar_low() -> bool:
+	return _stamina_bar.modulate == STAMINA_LOW_COLOR
 
 
 ## The interaction prompt currently SHOWN (e.g. "[F] Harvest"), or "" when the label is hidden.
