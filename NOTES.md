@@ -2237,4 +2237,16 @@ Greppable log of bugs/seams intentionally LEFT for a later pass, so they are not
   get_nodes_in_group order -- deterministic within a run and per-machine ONLY if containers register in the same
   order (placement deltas replay per-chunk today); the disk-save / MP milestone must confirm this invariant.
 
+- DEFERRED (Epic 2 seal): group_within_radius extraction: 5 group-within-radius scans now duplicate the same
+  Engine.get_main_loop()+get_nodes_in_group+is_instance_valid+distance boilerplate (station.tags_in_range/
+  levels_in_range/addons_in_range, interaction.containers_in_range/_find_nearest) -- extract a shared
+  static group_within_radius(group,pos,radius) helper at first Epic 3 cleanup; keep tags_in_range and
+  levels_in_range separate (level() runs a 2nd scan, too costly for the per-frame presence prompt).
+
+- DEFERRED (Epic 2 seal): BUILD-MODE UX LOOSE END: placement (station/container/add-on) is reachable only via
+  Builder.place/streaming_world.place_placeable/tests -- there is NO in-game build mode / ghost / key-bind, so
+  Epic 2's 'build a base' loop is headless-only and not yet operable by a human. Systems are real+persistent
+  (within ROADMAP scope) but a player-facing build UX slice is needed (schedule pre-Epic-3 or Epic 9); it must
+  generalize place_station to a kind/tag param across the 3 placeable kinds.
+
 Verified against: Godot 4.7.1 (2026-07-20)

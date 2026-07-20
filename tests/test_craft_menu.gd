@@ -20,10 +20,14 @@ class_name TestCraftMenu extends RefCounted
 const CRAFT_MENU_SCENE: PackedScene = preload("res://ui/craft_menu.tscn")
 const PLAYER_SCENE: PackedScene = preload("res://player/player.tscn")
 const STATION_SCENE: PackedScene = preload("res://world/station.tscn")
+const ADDON_SCENE: PackedScene = preload("res://world/station_addon.tscn")
 const BUSH_SCENE: PackedScene = preload("res://world/bush.tscn")
 
 const SPIN: StringName = &"spin_cord"          # fiber x3 -> cord x1, craft-anywhere
 const MASTER: StringName = &"master_cordage"   # fiber x5 -> cord x3, station_tag &"forge"
+## TIER recipe (SEAL): iron_ore x2 + cord x1 -> iron_sword, station_tag &"forge", min_station_level 2 (a LEVELED forge).
+const MASTERWORK: StringName = &"forge_masterwork_blade"
+const CORD_ITEM: ItemData = preload("res://data/cord.tres")
 
 ## FLAGSHIP recipe (the triple-gated iron sword) + its inputs/output, exercised THROUGH the real menu UI.
 const FORGE: StringName = &"forge_iron_sword"  # iron_ore x3 + stick x1 -> iron_sword, gated by heavy_hitter + level 3 + &"forge"
@@ -38,12 +42,16 @@ const HOME: Vector2 = Vector2(120000.0, -120000.0)
 ## Distinct remote region for the flagship-forge leg (clear of HOME + every other module) so its own forge
 ## Station never wanders into another leg's tag scan and vice-versa.
 const FLAGSHIP: Vector2 = Vector2(200000.0, -200000.0)
+## Distinct remote region for the SEAL tier-gate-through-the-menu leg (clear of HOME + FLAGSHIP + every other
+## module) so its forge + add-on never wander into another leg's scan and vice-versa.
+const TIER: Vector2 = Vector2(-200000.0, 200000.0)
 
 
 func run(ctx: TestContext) -> void:
 	print("[craft_menu] --- Part 4.2 minimal craft menu + 'f'-near-a-station open, end to end ---")
 	await _menu_api(ctx)
 	await _flagship_forge(ctx)
+	await _tier_gate_menu(ctx)
 	await _interaction_seam(ctx)
 	await _integration(ctx)
 	await _regressions_pure(ctx)
@@ -179,6 +187,64 @@ func _flagship_forge(ctx: TestContext) -> void:
 			and inv.count_of(STICK_ITEM) == 0 and inv.count_of(IRON_SWORD) == 1,
 		"craft_selected() forges the iron sword THROUGH THE MENU the player operates: ore 3 -> 0, stick 1 -> 0, iron_sword 0 -> 1",
 		"flagship craft through the menu wrong (ok=%s, ore=%d, stick=%d, sword=%d)" % [str(forged), inv.count_of(IRON_ORE), inv.count_of(STICK_ITEM), inv.count_of(IRON_SWORD)])
+
+	holder.queue_free()
+	await ctx.tree.physics_frame
+
+
+## SEAL -- TIER GATE through the CraftMenu UI seam: the min_station_level tier gate is proven Crafting-direct
+## (test_station_leveling Legs D/E) but never through the CraftMenu the player actually operates. This closes that:
+## a sheet that LEARNED forge_masterwork_blade (min_station_level 2) + an inventory holding its inputs (iron_ore x2
+## + cord x1), opened on the real menu at a REAL forge Station. At LEVEL 1 (bare forge) is_craftable(MASTERWORK) is
+## FALSE (the row is tier-blocked); placing an add-on in reach raises the forge to LEVEL 2 and set_levels({forge:2})
+## re-evaluates the row TRUE, then craft_selected() THROUGH THE MENU forges the sword. Proves the tier gate through
+## the UI the player uses, mirroring _flagship_forge's structural style (no HUD needed).
+func _tier_gate_menu(ctx: TestContext) -> void:
+	var holder: Node2D = Node2D.new()
+	ctx.tree.root.add_child(holder)
+	var menu: CraftMenu = CRAFT_MENU_SCENE.instantiate() as CraftMenu
+	holder.add_child(menu)
+	await ctx.tree.physics_frame  # let _ready resolve the row container
+
+	# Learn the tier recipe directly (its real learn gates are proven in test_recipes.gd) + hold its inputs.
+	var sheet: CharacterSheet = CharacterSheet.new()
+	sheet.known_recipes.learn(MASTERWORK)
+	var inv: Inventory = Inventory.new()
+	inv.add_item(IRON_ORE, 2)
+	inv.add_item(CORD_ITEM, 1)
+
+	# A REAL forge Station at the tier coords -- bare, so Station.levels_in_range reports {forge: 1}.
+	var forge: Station = STATION_SCENE.instantiate() as Station
+	forge.station_tag = &"forge"
+	holder.add_child(forge)
+	forge.global_position = TIER
+	await ctx.tree.physics_frame
+
+	# --- open at the LEVEL-1 forge: the recipe is LISTED but the row is TIER-BLOCKED (min_station_level 2 unmet) ---
+	var lvls_l1: Dictionary = Station.levels_in_range(TIER, Station.DEFAULT_REACH)
+	menu.open(sheet, inv, lvls_l1)
+	ctx.check(lvls_l1 == {&"forge": 1} and menu.listed_ids().has(MASTERWORK) and not menu.is_craftable(MASTERWORK),
+		"TIER GATE through the MENU: at a bare LEVEL-1 forge (levels {forge:1}) forge_masterwork_blade is LISTED but NOT craftable -- the row is tier-blocked (min_station_level 2)",
+		"tier row was craftable at a level-1 forge through the menu (levels=%s, listed=%s, craftable=%s)" % [str(lvls_l1), str(menu.listed_ids().has(MASTERWORK)), str(menu.is_craftable(MASTERWORK))])
+
+	# --- raise the forge to LEVEL 2 with an add-on, then set_levels({forge:2}): the row re-evaluates CRAFTABLE ---
+	var addon: StationAddon = ADDON_SCENE.instantiate() as StationAddon
+	holder.add_child(addon)
+	addon.global_position = TIER + Vector2(30.0, 0.0)
+	await ctx.tree.physics_frame
+	var lvls_l2: Dictionary = Station.levels_in_range(TIER, Station.DEFAULT_REACH)
+	menu.set_levels(lvls_l2)
+	ctx.check(forge.level() == 2 and lvls_l2 == {&"forge": 2} and menu.is_craftable(MASTERWORK),
+		"TIER GATE through the MENU: an add-on raises the forge to LEVEL 2 and set_levels({forge:2}) re-evaluates forge_masterwork_blade CRAFTABLE through the menu",
+		"tier row did not open at a level-2 forge through the menu (level=%d, levels=%s, craftable=%s)" % [forge.level(), str(lvls_l2), str(menu.is_craftable(MASTERWORK))])
+
+	# --- craft the tier recipe THROUGH the menu (select + craft_selected): ore x2 + cord x1 -> iron_sword ---
+	menu.select(MASTERWORK)
+	var forged: bool = menu.craft_selected()
+	ctx.check(forged and menu.selected_id() == MASTERWORK and inv.count_of(IRON_ORE) == 0
+			and inv.count_of(CORD_ITEM) == 0 and inv.count_of(IRON_SWORD) == 1,
+		"craft_selected() forges the masterwork blade THROUGH THE MENU at the level-2 forge: iron_ore 2 -> 0, cord 1 -> 0, iron_sword 0 -> 1",
+		"tier craft through the menu wrong (ok=%s, ore=%d, cord=%d, sword=%d)" % [str(forged), inv.count_of(IRON_ORE), inv.count_of(CORD_ITEM), inv.count_of(IRON_SWORD)])
 
 	holder.queue_free()
 	await ctx.tree.physics_frame
@@ -470,4 +536,4 @@ func _count_of(player: Player, item: ItemData) -> int:
 			total += player.inventory.count_at(i)
 	return total
 
-# Verified against: Godot 4.7.1 (2026-07-19)
+# Verified against: Godot 4.7.1 (2026-07-20)

@@ -9,7 +9,7 @@ class_name TestStationLeveling extends RefCounted
 ## leveled-up workshop unlocks better recipes (RecipeData.min_station_level + Station.levels_in_range +
 ## Crafting._station_satisfies). Legs D + E below cover the tier gate; A/B/C cover the Part 4.1 leveling.
 ##
-## FIVE self-contained legs, each at REMOTE coords clear of every other module + of each other (so no add-on or
+## SEVEN self-contained legs, each at REMOTE coords clear of every other module + of each other (so no add-on or
 ## station wanders into another scan), mirroring the isolation style of tests/test_station.gd + test_container.gd:
 ##   A (level derivation + cap): a Station with NO add-on is level 1; ONE add-on in reach -> 2; TWO -> 3; a THIRD
 ##     in reach does NOT raise past the cap (still 3); an add-on FAR from the station does not count. Pure logic on
@@ -29,10 +29,20 @@ class_name TestStationLeveling extends RefCounted
 ##   E (TIER GATE, end to end -- Part 4.2): a real forge Station is level 1 (levels_in_range {&"forge": 1}) and
 ##     REFUSES the masterwork; placing an add-on in reach raises it to level 2 ({&"forge": 2}) and the SAME craft
 ##     SUCCEEDS -- the whole world -> Station.levels_in_range -> Crafting tier path, no coupling.
+##   F (SEAL -- levels_in_range MAX-wins): two same-tag forges at DIFFERENT levels in ONE query radius (one bare =
+##     level 1, one with an add-on in reach = level 2) -> levels_in_range reports {&"forge": 2} (the maxi merge
+##     picks the HIGHER bench). The existing two-forge scan (test_station.gd) uses two level-1 forges, so this is
+##     the first proof of the max branch.
+##   G (SEAL -- Phase 3 x Phase 4 cross): a TIER-GATED recipe crafted FROM STORAGE at a LEVELED station -- the
+##     composition Epic 2 claims but no leg exercised. A real forge + a chest holding the masterwork inputs (the
+##     player's inventory empty of them): REFUSED at the level-1 forge (tier gate) even with the chest stocked,
+##     CRAFTS at the add-on-raised level-2 forge pulling every input from the chest (Station.levels_in_range +
+##     the chest store through Crafting.craft).
 ## Registered in tests/smoke_slash.gd after TestCraftFromStorage (Phase 3), before the environment/enemy legs.
 
 const STATION_SCENE: PackedScene = preload("res://world/station.tscn")
 const ADDON_SCENE: PackedScene = preload("res://world/station_addon.tscn")
+const CONTAINER_SCENE: PackedScene = preload("res://world/container.tscn")
 
 ## Part 4.2 TIER-GATE recipes: the masterwork blade needs a forge of LEVEL >= 2 (iron_ore x2 + cord x1 -> iron_sword);
 ## master_cordage is a forge recipe with min_station_level 0 (un-tiered -- unaffected by the forge's level).
@@ -48,6 +58,8 @@ const FOCUS_C: Vector2i = Vector2i(31000, 31000)        # Leg C: station + add-o
 const STATION_LOCAL_C: Vector2 = Vector2(200.0, 240.0)
 const ADDON_LOCAL_C: Vector2 = Vector2(230.0, 240.0)    # 30 px from the station -- inside DEFAULT_REACH (80 px)
 const HOME_E: Vector2 = Vector2(170000.0, -170000.0)    # Leg E: tier gate end to end (real forge + add-on)
+const HOME_F: Vector2 = Vector2(-180000.0, 180000.0)    # Leg F: tier gate x craft-from-storage (forge + chest + add-on)
+const HOME_G: Vector2 = Vector2(180000.0, 180000.0)     # Leg G: levels_in_range MAX-wins (two forges at diff levels)
 const SEED: int = 7
 
 
@@ -58,6 +70,8 @@ func run(ctx: TestContext) -> void:
 	await _leg_persist(ctx)
 	_leg_tier_gate(ctx)
 	await _leg_tier_world(ctx)
+	await _leg_levels_max_wins(ctx)
+	await _leg_tier_from_storage(ctx)
 
 
 ## Leg A: the level() derivation + the cap, on a plain holder (no streaming). A Station is level 1 with no add-ons;
@@ -319,6 +333,85 @@ func _leg_tier_world(ctx: TestContext) -> void:
 			and inv2.count_of(ORE) == 0 and inv2.count_of(CORD) == 0 and inv2.count_of(SWORD) == 1,
 		"END TO END: an add-on raises the forge to LEVEL 2 (levels_in_range {forge:2}) -> forge_masterwork_blade CRAFTS (ore 2 -> 0, cord 1 -> 0, iron_sword 0 -> 1)",
 		"tier recipe did not craft after raising the forge to level 2 (level=%d, levels=%s, ok=%s, ore=%d, cord=%d, sword=%d)" % [forge.level(), str(lvls_l2), str(at_l2), inv2.count_of(ORE), inv2.count_of(CORD), inv2.count_of(SWORD)])
+
+	holder.queue_free()
+	await ctx.tree.physics_frame
+
+
+## Leg F (SEAL -- levels_in_range MAX-wins): two same-tag forges at DIFFERENT levels within ONE query radius --
+## a bare forge (level 1) and a forge with an add-on in reach (level 2). Station.levels_in_range must report the
+## HIGHER level for the shared tag (the maxi merge picks the better bench), not the first-seen or the lower one.
+## The existing two-forge scan (tests/test_station.gd) uses two level-1 forges, so this is the first proof of the
+## max branch. Pure logic on a holder (no streaming); the two forges sit 200 px apart so the add-on is in reach of
+## ONLY the second (forge1 genuinely stays level 1), while both forges fall inside the 300 px query radius.
+func _leg_levels_max_wins(ctx: TestContext) -> void:
+	var holder: Node2D = Node2D.new()
+	ctx.tree.root.add_child(holder)
+
+	# forge1 at the query point (bare -> level 1); forge2 200 px away with an add-on 30 px from IT (-> level 2). The
+	# add-on is 230 px from forge1 (outside the 80 px DEFAULT_REACH), so forge1 is NOT raised.
+	var forge1: Station = _make_station(holder, HOME_G, &"forge")
+	var forge2: Station = _make_station(holder, HOME_G + Vector2(200.0, 0.0), &"forge")
+	_make_addon(holder, HOME_G + Vector2(230.0, 0.0))
+	await ctx.tree.physics_frame
+
+	# A 300 px query radius covers both forges (0 and 200 px out); levels_in_range MERGES their tag to the MAX level.
+	var lvls: Dictionary = Station.levels_in_range(HOME_G, 300.0)
+	ctx.check(forge1.level() == 1 and forge2.level() == 2 and lvls == {&"forge": 2},
+		"levels_in_range MAX-wins: a bare forge (level 1) and an add-on-raised forge (level 2) in ONE query radius report {&\"forge\": 2} -- the maxi merge picks the HIGHER level across two same-tag forges, not the lower/first",
+		"levels_in_range did not pick the max level across two same-tag forges (f1=%d, f2=%d, levels=%s)" % [forge1.level(), forge2.level(), str(lvls)])
+
+	holder.queue_free()
+	await ctx.tree.physics_frame
+
+
+## Leg G (SEAL -- Phase 3 x Phase 4 cross): a TIER-GATED recipe crafted FROM STORAGE at a LEVELED station -- the
+## composition Epic 2 claims but no leg exercised (craft-from-storage inputs + the min_station_level tier gate at a
+## real leveled forge, together). A real forge Station + a chest holding the masterwork inputs (iron_ore x2 + cord
+## x1) with the player's own inventory EMPTY of them. At the bare LEVEL-1 forge the craft REFUSES on the tier gate
+## EVEN with the chest stocked (nothing drained anywhere); an add-on raises the forge to LEVEL 2 and the SAME craft
+## CRAFTS, pulling every input from the CHEST (the personal inventory holds none), the iron_sword landing in the
+## inventory and the chest drained. Drives Station.levels_in_range + the chest store through Crafting.craft exactly
+## as ui/hud.gd would collect + route them.
+func _leg_tier_from_storage(ctx: TestContext) -> void:
+	var holder: Node2D = Node2D.new()
+	ctx.tree.root.add_child(holder)
+	var ORE: ItemData = load("res://data/iron_ore.tres")
+	var CORD: ItemData = load("res://data/cord.tres")
+	var SWORD: ItemData = load("res://data/iron_sword.tres")
+	var craft: Crafting = Crafting.new()
+	var sheet: CharacterSheet = CharacterSheet.new()
+	sheet.known_recipes.learn(MASTERWORK)
+
+	# A real forge Station (level 1) + a chest holding the masterwork inputs; the player's own inventory holds NONE.
+	var forge: Station = _make_station(holder, HOME_F, &"forge")
+	var chest: StorageContainer = CONTAINER_SCENE.instantiate() as StorageContainer
+	holder.add_child(chest)
+	chest.global_position = HOME_F + Vector2(20.0, 0.0)
+	chest.store.add_item(ORE, 2)
+	chest.store.add_item(CORD, 1)
+	await ctx.tree.physics_frame
+
+	# LEVEL 1 (no add-on): the tier gate REFUSES though the chest is fully stocked -- nothing drained anywhere.
+	var lvls_l1: Dictionary = Station.levels_in_range(HOME_F, Station.DEFAULT_REACH)
+	var inv: Inventory = Inventory.new()   # personal inventory holds NONE of the inputs
+	var at_l1: bool = craft.craft(MASTERWORK, sheet, inv, lvls_l1, [chest.store] as Array[Inventory])
+	ctx.check(lvls_l1 == {&"forge": 1} and not at_l1
+			and chest.store.count_of(ORE) == 2 and chest.store.count_of(CORD) == 1 and inv.count_of(SWORD) == 0,
+		"CROSS Phase3xPhase4: forge_masterwork_blade REFUSES from STORAGE at a LEVEL-1 forge (tier gate) even with the chest fully stocked -- nothing drained (chest ore 2, cord 1, no sword)",
+		"tier-gated craft-from-storage ran at a level-1 forge (levels=%s, ok=%s, chest_ore=%d, chest_cord=%d, sword=%d)" % [str(lvls_l1), str(at_l1), chest.store.count_of(ORE), chest.store.count_of(CORD), inv.count_of(SWORD)])
+
+	# LEVEL 2 (add-on in reach): the SAME craft now CRAFTS, pulling every input from the CHEST (inventory had none);
+	# the iron_sword lands in the inventory, the chest is drained. would_craft agrees + is a net no-op before it.
+	_make_addon(holder, HOME_F + Vector2(-30.0, 0.0))
+	await ctx.tree.physics_frame
+	var lvls_l2: Dictionary = Station.levels_in_range(HOME_F, Station.DEFAULT_REACH)
+	var would2: bool = craft.would_craft(MASTERWORK, sheet, inv, lvls_l2, [chest.store] as Array[Inventory])
+	var at_l2: bool = craft.craft(MASTERWORK, sheet, inv, lvls_l2, [chest.store] as Array[Inventory])
+	ctx.check(forge.level() == 2 and lvls_l2 == {&"forge": 2} and would2 and at_l2
+			and chest.store.count_of(ORE) == 0 and chest.store.count_of(CORD) == 0 and inv.count_of(SWORD) == 1,
+		"CROSS Phase3xPhase4: an add-on raises the forge to LEVEL 2 -> forge_masterwork_blade CRAFTS FROM THE CHEST (inputs pulled from storage, inventory held none): chest ore 2 -> 0, cord 1 -> 0, iron_sword 0 -> 1 in the inventory (would_craft agreed)",
+		"tier-gated craft-from-storage did not craft at a level-2 forge (level=%d, levels=%s, would=%s, ok=%s, chest_ore=%d, chest_cord=%d, sword=%d)" % [forge.level(), str(lvls_l2), str(would2), str(at_l2), chest.store.count_of(ORE), chest.store.count_of(CORD), inv.count_of(SWORD)])
 
 	holder.queue_free()
 	await ctx.tree.physics_frame
