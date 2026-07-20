@@ -71,6 +71,11 @@ var _stamina_ghost_value: float = 1.0
 ## toggles this menu open/closed -- the HUD PULLS the request, the player never pushes into the UI. The menu
 ## reads the player's sheet/inventory + runs Crafting; the HUD only opens/closes it.
 @onready var _craft_menu: CraftMenu = $CraftMenu
+## Minimal container transfer panel (plan-epic2-parts.md Phase 2 Part 2.3): the craft menu's sibling, hosted here on
+## the HUD/CanvasLayer (never the streamed chunk path). The per-frame pass polls the player's interaction for an
+## 'f'-near-a-container open request and manages the open panel with the SAME hardened ordering as the craft menu --
+## the HUD PULLS the request, the player never pushes into the UI. Only ONE of the two panels is ever open at once.
+@onready var _container_panel: ContainerPanel = $ContainerPanel
 
 
 ## Point the HUD at the live player: store the ref, subscribe to the health damage EVENT, bind the
@@ -109,6 +114,7 @@ func _refresh(delta: float) -> void:
 	_hotbar.refresh()
 	_refresh_prompt()
 	_refresh_craft_menu()
+	_refresh_container_panel()
 
 
 ## Carried-weight readout (design-weight.md REVISION 1 "HUD"): "Wt <carried> / <capacity>" with
@@ -171,6 +177,7 @@ func _refresh_craft_menu() -> void:
 		if _craft_menu.is_open:
 			_craft_menu.close()
 		else:
+			_container_panel.close()  # only ONE panel (craft OR container) open at a time -- opening one closes the other
 			_craft_menu.open(_player.character(), _player.inventory, tags)
 		return
 	if _craft_menu.is_open:
@@ -179,6 +186,37 @@ func _refresh_craft_menu() -> void:
 			_craft_menu.close()
 		else:
 			_craft_menu.set_tags(live_tags)
+
+
+## Container transfer panel open/close driver (plan-epic2-parts.md Phase 2 Part 2.3): the HUD MANAGES the open panel
+## each frame with the SAME hardened ordering as _refresh_craft_menu so it can never get STUCK and never acts on a
+## container the player already left. Fixed ordering:
+##   1. An 'f'-near-a-container open REQUEST takes priority -- consume it and TOGGLE: if the panel is already open,
+##      close it (a second 'f' by the container toggles closed) and RETURN; otherwise close the craft menu (only
+##      ONE panel open at a time) and open the panel bound to the requested container + the player's live inventory.
+##   2. Otherwise, if the panel is OPEN, check the BOUND container's LIVE proximity: if it was freed or the player
+##      walked farther than Interaction.CONTAINER_REACH from it, AUTO-DISMISS with close() -- never stuck, and a
+##      transfer can never run against a container the player left. (The store is read live on every deposit/
+##      withdraw, so unlike the craft menu's station gate there is no stale snapshot to refresh -- only the reach.)
+## The HUD reaches into the player-owned interaction (like _refresh_craft_menu) and re-derives live proximity with
+## the same CONTAINER_REACH the interaction scans; the player/interaction never reach into this UI. Guarded until
+## the interaction exists.
+func _refresh_container_panel() -> void:
+	if _player._interaction == null:
+		return
+	if _player._interaction.container_open_pending():
+		var box: StorageContainer = _player._interaction.consume_container_open()
+		if _container_panel.is_open:
+			_container_panel.close()
+		elif box != null:
+			_craft_menu.close()  # only ONE panel (craft OR container) open at a time -- opening one closes the other
+			_container_panel.open(box, _player.inventory)
+		return
+	if _container_panel.is_open:
+		var bound: StorageContainer = _container_panel.bound_container()
+		if bound == null or not is_instance_valid(bound) \
+				or _player.global_position.distance_to(bound.global_position) > Interaction.CONTAINER_REACH:
+			_container_panel.close()
 
 
 ## Human-readable key currently bound to the_action_button: the first InputEventKey's keycode
@@ -287,6 +325,13 @@ func craft_menu() -> CraftMenu:
 	return _craft_menu
 
 
+## The hosted container transfer panel (plan-epic2-parts.md Phase 2 Part 2.3), for the headless test to assert the
+## 'f'-near-a-container open opened it + listed the container's contents and the player inventory. Read-only handle;
+## the HUD owns opening/closing it (and keeps only ONE of it and the craft menu open at a time).
+func container_panel() -> ContainerPanel:
+	return _container_panel
+
+
 ## The level + XP readout currently SHOWN (e.g. "Lv 2  XP 120"), for the headless HUD/XP test.
 func level_text() -> String:
 	return _level_label.text
@@ -347,4 +392,4 @@ func highlighted_slot_index() -> int:
 func highlighted_count() -> int:
 	return _hotbar.highlighted_count()
 
-# Verified against: Godot 4.7.1 (2026-07-19)
+# Verified against: Godot 4.7.1 (2026-07-20)

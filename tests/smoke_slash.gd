@@ -139,6 +139,9 @@ func _run() -> void:
 	# --- Storage container EPIC 2 Part 2.1: a Container places for its cost (kind-agnostic path) + an empty container round-trips (self-contained, remote) ---
 	await TestContainer.new().run(ctx)
 
+	# --- Container transfer UI EPIC 2 Part 2.3: 'f'-open panel lists both stores, deposit/withdraw through it, 'f' priority (station>container>harvest), auto-close, mutual exclusion (self-contained, remote) ---
+	await TestContainerPanel.new().run(ctx)
+
 	# --- Boulder terrain Environment #2 (self-contained: own holders/players/boulders + ChunkManager) ---
 	await TestBoulder.new().run(ctx)
 

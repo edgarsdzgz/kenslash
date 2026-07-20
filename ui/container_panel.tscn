@@ -1,0 +1,51 @@
+[gd_scene load_steps=3 format=3]
+
+[ext_resource type="Script" path="res://ui/container_panel.gd" id="1_container_panel"]
+
+[sub_resource type="StyleBoxFlat" id="StyleBoxFlat_container_panel"]
+bg_color = Color(0.08, 0.08, 0.1, 0.85)
+content_margin_left = 10.0
+content_margin_top = 8.0
+content_margin_right = 10.0
+content_margin_bottom = 8.0
+corner_radius_top_left = 6
+corner_radius_top_right = 6
+corner_radius_bottom_right = 6
+corner_radius_bottom_left = 6
+
+[node name="ContainerPanel" type="Control"]
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+mouse_filter = 2
+visible = false
+script = ExtResource("1_container_panel")
+
+[node name="Panel" type="PanelContainer" parent="."]
+anchor_left = 0.5
+anchor_top = 0.5
+anchor_right = 0.5
+anchor_bottom = 0.5
+offset_left = -120.0
+offset_top = -100.0
+offset_right = 120.0
+offset_bottom = 100.0
+grow_horizontal = 2
+grow_vertical = 2
+theme_override_styles/panel = SubResource("StyleBoxFlat_container_panel")
+
+[node name="Column" type="VBoxContainer" parent="Panel"]
+theme_override_constants/separation = 4
+
+[node name="ContainerTitle" type="Label" parent="Panel/Column"]
+text = "Container"
+
+[node name="ContainerList" type="VBoxContainer" parent="Panel/Column"]
+theme_override_constants/separation = 2
+
+[node name="InventoryTitle" type="Label" parent="Panel/Column"]
+text = "Inventory"
+
+[node name="InventoryList" type="VBoxContainer" parent="Panel/Column"]
+theme_override_constants/separation = 2

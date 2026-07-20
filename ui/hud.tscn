@@ -1,8 +1,9 @@
-[gd_scene load_steps=6 format=3]
+[gd_scene load_steps=7 format=3]
 
 [ext_resource type="Script" path="res://ui/hud.gd" id="1_hud"]
 [ext_resource type="Script" path="res://ui/hotbar_panel.gd" id="2_hotbar"]
 [ext_resource type="PackedScene" path="res://ui/craft_menu.tscn" id="3_craft"]
+[ext_resource type="PackedScene" path="res://ui/container_panel.tscn" id="4_container"]
 
 [sub_resource type="StyleBoxEmpty" id="StyleBoxEmpty_stamina_front"]
 
@@ -104,3 +105,5 @@ theme_override_constants/separation = 4
 script = ExtResource("2_hotbar")
 
 [node name="CraftMenu" parent="." instance=ExtResource("3_craft")]
+
+[node name="ContainerPanel" parent="." instance=ExtResource("4_container")]
