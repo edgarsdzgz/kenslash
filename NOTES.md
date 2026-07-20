@@ -2212,4 +2212,12 @@ Greppable log of bugs/seams intentionally LEFT for a later pass, so they are not
   after `_respawn_in_place` and bumps `_combo_index` (0->1) past the respawn reset -- pre-existing in combat.gd,
   NOT a talent/Epic-1 regression, deferred.
 
-Verified against: Godot 4.7.1 (2026-07-19)
+- DEFERRED (Epic 2 Part 1.2, streaming_world.gd/build UX): build-mode / ghost / key-bind placement UX is
+  DEFERRED -- `place_station` is reachable only via direct call/tests this epic (Epic 2 plan Open-confirmation
+  #2, minimal-then-polish); no in-game build mode, ghost preview, or key binding wires it up yet.
+
+- DEFERRED (Epic 2 Part 1.2, streaming_world.gd `place_station`): `place_station` hardcodes the scene's forge
+  tag + only places STATIONs -- generalize to a kind/tag parameter when Phase 2 adds container placement (a
+  2nd placeable kind).
+
+Verified against: Godot 4.7.1 (2026-07-20)

@@ -14,6 +14,16 @@ class_name TestPlacementPersist extends RefCounted
 ##   B (streamed-world integration): the real streaming_world.place_station flow -- Builder deducts the build
 ##     cost + spawns under the owning chunk's container, and register_placement records the delta; a short
 ##     placement refused for want of materials records NO delta and consumes NOTHING (atomic).
+## Plus four REVIEW-COVERAGE legs (both reviewers flagged these as missing tests, not bugs -- the code is
+## correct), each a self-contained hand-driven ChunkManager at a FRESH remote coord clear of every other leg:
+##   C (FIX 1): a placed STATION and a GONE baseline entry (a mined-out rock) coexist in ONE chunk across a
+##     round trip -- exercising the exact index-alignment the ChunkManager STATION-skip reasons about (a null
+##     nodes[k] slot for the gone rock + an appended STATION beyond _content). Both deltas must survive.
+##   D (FIX 2): TWO stations (distinct positions + tags) in ONE chunk round-trip -- no loss, no double-spawn.
+##   E (FIX 3): a place->unload->reload round trip in a NEGATIVE-both-axes chunk (Leg A is all-positive) --
+##     proves the floori / chunk_origin local-pos math round-trips across negatives.
+##   F (FIX 4): a station's tag surviving TWO full unload/reload cycles -- proves the addition is stable cold
+##     data, not consumed on the first reload.
 ## Registered in tests/smoke_slash.gd after TestBuilder (Part 1.1).
 
 const STATION_SCENE: PackedScene = preload("res://world/station.tscn")
@@ -30,11 +40,34 @@ const TAG_A: StringName = &"anvil"
 const PLACE_LOCAL: Vector2 = Vector2(120.0, 90.0)
 const SEED: int = 7
 
+## --- REVIEW-COVERAGE legs (FIX 1-4): fresh remote focus chunks, each far from FOCUS_A/B and from every
+## other module, so no manager's 3x3 co-activates another's placement. Distinctive per-leg tags (none the
+## station.tscn default &"forge") so a reloaded station reading its tag proves the ADDITION's stored tag was
+## re-applied on spawn -- a coincidental default could not pass.
+const FOCUS_C: Vector2i = Vector2i(12000, 12000)     # FIX 1: station + mined-out (GONE) rock coexist
+const TAG_C: StringName = &"kiln"
+const PLACE_LOCAL_C: Vector2 = Vector2(200.0, 260.0)
+const FOCUS_D: Vector2i = Vector2i(13000, -13000)    # FIX 2: two stations in one chunk
+const TAG_D1: StringName = &"loom"
+const TAG_D2: StringName = &"smithy"
+const PLACE_LOCAL_D1: Vector2 = Vector2(100.0, 100.0)
+const PLACE_LOCAL_D2: Vector2 = Vector2(430.0, 350.0)
+const FOCUS_E: Vector2i = Vector2i(-14000, -14000)   # FIX 3: negative-both-axes round trip
+const TAG_E: StringName = &"crucible"
+const PLACE_LOCAL_E: Vector2 = Vector2(150.0, 220.0)
+const FOCUS_F: Vector2i = Vector2i(15000, 15000)     # FIX 4: tag survives two unload/reload cycles
+const TAG_F: StringName = &"tannery"
+const PLACE_LOCAL_F: Vector2 = Vector2(300.0, 180.0)
+
 
 func run(ctx: TestContext) -> void:
 	print("[placement-persist] --- Epic 2 Part 1.2: placed stations survive unload/reload as ADDITION deltas ---")
 	await _leg_manager(ctx)
 	await _leg_streamed_world(ctx)
+	await _leg_gone_coexist(ctx)     # FIX 1
+	await _leg_two_stations(ctx)     # FIX 2
+	await _leg_negative_coord(ctx)   # FIX 3
+	await _leg_multi_cycle(ctx)      # FIX 4
 
 
 ## Leg A: the persistence core on a hand-driven ChunkManager (load_radius 1 -> a 3x3 = 9 active set, so one
@@ -199,6 +232,278 @@ func _leg_streamed_world(ctx: TestContext) -> void:
 	await ctx.tree.physics_frame
 
 
+## FIX 1 -- a placed STATION and a GONE baseline entry (a mined-out rock) coexist in ONE chunk across a round
+## trip. This is the most valuable coverage gap: it exercises the exact index-alignment the ChunkManager
+## STATION-skip reasons about. The mined rock leaves a null nodes[k] slot the paired deactivate loop must
+## gone-flag, WHILE the station -- registered AFTER activation -- is an entry appended BEYOND _content that the
+## STATION `continue` must SKIP (not gone-flag). Both deltas must survive: the gone rock never respawns AND the
+## station returns at its pos + tag. The mine seam is the SAME direct Material.wear the C3b streaming legs use.
+func _leg_gone_coexist(ctx: TestContext) -> void:
+	var mgr: ChunkManager = ChunkManager.new()
+	mgr.load_radius = 1
+	mgr.world_seed = SEED
+	ctx.tree.root.add_child(mgr)
+	var mover: Node2D = Node2D.new()
+	ctx.tree.root.add_child(mover)
+	mgr.target = mover
+
+	mover.global_position = WorldScale.chunk_origin(FOCUS_C) + Vector2(20.0, 20.0)
+	await ctx.tree.physics_frame
+	await ctx.tree.physics_frame
+	var container: Node2D = mgr.active_container(FOCUS_C)
+	var rocks: Array = _rocks_in(container)
+	var rocks_before: int = rocks.size()
+
+	# Mine the FIRST rock OUT: drive its Material to 0 -> rock.gd._on_broke -> queue_free. After the deferred
+	# free resolves, nodes[k] is an invalid slot, so the paired loop gone-flags that baseline MINERAL entry.
+	if rocks_before >= 1:
+		var doomed_mat: DurabilityComponent = (rocks[0] as Rock).get_node("Material") as DurabilityComponent
+		doomed_mat.wear(doomed_mat.current_durability)
+	await ctx.tree.physics_frame  # let the doomed rock's deferred queue_free resolve
+
+	# Place a station WHILE ACTIVE (live node + registered addition) -- the addition appends BEYOND _content.
+	var world_pos: Vector2 = WorldScale.chunk_origin(FOCUS_C) + PLACE_LOCAL_C
+	var live_station: Station = STATION_SCENE.instantiate() as Station
+	live_station.station_tag = TAG_C
+	container.add_child(live_station)
+	live_station.global_position = world_pos
+	mgr.register_placement(world_pos, {"station_tag": String(TAG_C)})
+	await ctx.tree.physics_frame
+
+	ctx.check(container != null and rocks_before >= 1 and _stations_in(container).size() == 1,
+		"FIX1 setup: chunk " + str(FOCUS_C) + " active with >= 1 rock; its first rock mined OUT and ONE station placed (live node + addition delta) -- a GONE baseline entry and an addition now share the chunk",
+		"FIX1 setup wrong (rocks_before=" + str(rocks_before) + ", stations=" + str(_stations_in(container).size()) + ")")
+
+	var orphans_before: int = int(Performance.get_monitor(Performance.OBJECT_ORPHAN_NODE_COUNT))
+
+	# UNLOAD: the paired loop must gone-flag the mined rock's MINERAL entry (null nodes[k]) AND skip the STATION
+	# addition (index beyond nodes.size()) -- keeping it, never gone-flagging it.
+	mover.global_position = WorldScale.chunk_origin(FOCUS_C + Vector2i(20, 20)) + Vector2(20.0, 20.0)
+	await ctx.tree.physics_frame
+	await ctx.tree.physics_frame
+	var stored: ChunkData = mgr.stored_data(FOCUS_C)
+	var kept_station: Array = _station_entries(stored)
+	ctx.check(kept_station.size() == 1 and not _any_gone(kept_station) and _any_mineral_gone(stored),
+		"FIX1 unload: the STATION addition is KEPT (not gone-flagged) AND the mined rock's MINERAL entry is flagged gone -- the index-alignment held (skip the appended station, gone-flag the null rock slot)",
+		"FIX1 unload wrong (station kept=" + str(kept_station.size()) + " station-gone=" + str(_any_gone(kept_station)) + " mineral-gone=" + str(_any_mineral_gone(stored)) + ")")
+
+	# RELOAD: spawn() re-creates the station from the addition; the gone rock is SKIPPED (never respawns).
+	mover.global_position = WorldScale.chunk_origin(FOCUS_C) + Vector2(20.0, 20.0)
+	await ctx.tree.physics_frame
+	await ctx.tree.physics_frame
+	var rc: Node2D = mgr.active_container(FOCUS_C)
+	var reloaded: Array = _stations_in(rc)
+	var station_ok: bool = reloaded.size() == 1 \
+		and (reloaded[0] as Station).station_tag == TAG_C \
+		and world_pos.distance_to((reloaded[0] as Station).global_position) < 0.5
+	var rock_ok: bool = _rocks_in(rc).size() == rocks_before - 1
+	ctx.check(station_ok and rock_ok,
+		"FIX1 reload: BOTH deltas survived -- exactly ONE station back at its pos + tag " + str(TAG_C) + " AND the mined rock stayed GONE (rocks " + str(rocks_before) + " -> " + str(_rocks_in(rc).size()) + ", not respawned)",
+		"FIX1 reload wrong (stations=" + str(reloaded.size()) + " rocks=" + str(_rocks_in(rc).size()) + " expected rocks=" + str(rocks_before - 1) + ")")
+
+	var orphans_after: int = int(Performance.get_monitor(Performance.OBJECT_ORPHAN_NODE_COUNT))
+	ctx.check(orphans_after <= orphans_before,
+		"FIX1 zero-orphan-leak: orphan node count did not grow across mine + place -> unload -> reload (" + str(orphans_before) + " -> " + str(orphans_after) + ")",
+		"FIX1 orphan nodes leaked (" + str(orphans_before) + " -> " + str(orphans_after) + ")")
+
+	mgr.queue_free()
+	mover.queue_free()
+	await ctx.tree.physics_frame
+	await ctx.tree.physics_frame
+
+
+## FIX 2 -- TWO stations (distinct positions AND distinct tags) placed in ONE chunk survive a round trip: both
+## come back at their own position with their own tag, no loss, no double-spawn, no orphan/mixup. Driven via
+## register_placement directly (so the two tags can differ), then reloaded from the two ADDITION entries.
+func _leg_two_stations(ctx: TestContext) -> void:
+	var mgr: ChunkManager = ChunkManager.new()
+	mgr.load_radius = 1
+	mgr.world_seed = SEED
+	ctx.tree.root.add_child(mgr)
+	var mover: Node2D = Node2D.new()
+	ctx.tree.root.add_child(mover)
+	mgr.target = mover
+
+	mover.global_position = WorldScale.chunk_origin(FOCUS_D) + Vector2(20.0, 20.0)
+	await ctx.tree.physics_frame
+	await ctx.tree.physics_frame
+
+	var pos1: Vector2 = WorldScale.chunk_origin(FOCUS_D) + PLACE_LOCAL_D1
+	var pos2: Vector2 = WorldScale.chunk_origin(FOCUS_D) + PLACE_LOCAL_D2
+	mgr.register_placement(pos1, {"station_tag": String(TAG_D1)})
+	mgr.register_placement(pos2, {"station_tag": String(TAG_D2)})
+	await ctx.tree.physics_frame
+
+	var stored: ChunkData = mgr.stored_data(FOCUS_D)
+	var adds: Array = _station_entries(stored)
+	ctx.check(adds.size() == 2 and stored != null and stored.dirty,
+		"FIX2 place: TWO distinct STATION additions recorded on chunk " + str(FOCUS_D) + " (a dirty delta chunk)",
+		"FIX2 did not record two additions (adds=" + str(adds.size()) + ")")
+
+	var orphans_before: int = int(Performance.get_monitor(Performance.OBJECT_ORPHAN_NODE_COUNT))
+
+	# UNLOAD -> RELOAD.
+	mover.global_position = WorldScale.chunk_origin(FOCUS_D + Vector2i(20, 20)) + Vector2(20.0, 20.0)
+	await ctx.tree.physics_frame
+	await ctx.tree.physics_frame
+	var kept: Array = _station_entries(mgr.stored_data(FOCUS_D))
+	ctx.check(kept.size() == 2 and not _any_gone(kept),
+		"FIX2 unload: BOTH STATION additions kept (neither gone-flagged) as cold data",
+		"FIX2 lost/gone-flagged an addition on unload (kept=" + str(kept.size()) + ")")
+
+	mover.global_position = WorldScale.chunk_origin(FOCUS_D) + Vector2(20.0, 20.0)
+	await ctx.tree.physics_frame
+	await ctx.tree.physics_frame
+	var rc: Node2D = mgr.active_container(FOCUS_D)
+	var reloaded: Array = _stations_in(rc)
+	var s1: Station = _station_at(reloaded, pos1)
+	var s2: Station = _station_at(reloaded, pos2)
+	var both_ok: bool = reloaded.size() == 2 \
+		and s1 != null and s1.station_tag == TAG_D1 \
+		and s2 != null and s2.station_tag == TAG_D2
+	ctx.check(both_ok,
+		"FIX2 reload: EXACTLY two stations respawned, each at its own position with its own tag (" + str(TAG_D1) + " + " + str(TAG_D2) + ") -- no loss, no double-spawn, no mixup",
+		"FIX2 two-station round-trip wrong (count=" + str(reloaded.size()) + " s1=" + str(s1 != null) + " s2=" + str(s2 != null) + ")")
+
+	var orphans_after: int = int(Performance.get_monitor(Performance.OBJECT_ORPHAN_NODE_COUNT))
+	ctx.check(orphans_after <= orphans_before,
+		"FIX2 zero-orphan-leak: orphan node count did not grow across the two-station round trip (" + str(orphans_before) + " -> " + str(orphans_after) + ")",
+		"FIX2 orphan nodes leaked (" + str(orphans_before) + " -> " + str(orphans_after) + ")")
+
+	mgr.queue_free()
+	mover.queue_free()
+	await ctx.tree.physics_frame
+	await ctx.tree.physics_frame
+
+
+## FIX 3 -- a place->unload->reload round trip in a NEGATIVE-both-axes chunk (Leg A's only round trip is
+## all-positive). Proves the floori / chunk_origin local-pos math round-trips across negatives: the station's
+## stored local_pos = world_pos - chunk_origin(coord) (a positive [0, CHUNK_PX) offset from a NEGATIVE origin)
+## must re-produce the exact world_pos on reload.
+func _leg_negative_coord(ctx: TestContext) -> void:
+	var mgr: ChunkManager = ChunkManager.new()
+	mgr.load_radius = 1
+	mgr.world_seed = SEED
+	ctx.tree.root.add_child(mgr)
+	var mover: Node2D = Node2D.new()
+	ctx.tree.root.add_child(mover)
+	mgr.target = mover
+
+	mover.global_position = WorldScale.chunk_origin(FOCUS_E) + Vector2(20.0, 20.0)
+	await ctx.tree.physics_frame
+	await ctx.tree.physics_frame
+
+	var world_pos: Vector2 = WorldScale.chunk_origin(FOCUS_E) + PLACE_LOCAL_E
+	mgr.register_placement(world_pos, {"station_tag": String(TAG_E)})
+	await ctx.tree.physics_frame
+	var stored: ChunkData = mgr.stored_data(FOCUS_E)
+	ctx.check(WorldScale.world_to_chunk(world_pos) == FOCUS_E and _station_entries(stored).size() == 1,
+		"FIX3 place: a station at a NEGATIVE-both-axes world pos " + str(world_pos) + " is owned by chunk " + str(FOCUS_E) + " and recorded as ONE addition (floori chunk math resolves negatives)",
+		"FIX3 place wrong (owning=" + str(WorldScale.world_to_chunk(world_pos)) + " adds=" + str(_station_entries(stored).size()) + ")")
+
+	var orphans_before: int = int(Performance.get_monitor(Performance.OBJECT_ORPHAN_NODE_COUNT))
+
+	# UNLOAD -> RELOAD.
+	mover.global_position = WorldScale.chunk_origin(FOCUS_E + Vector2i(20, 20)) + Vector2(20.0, 20.0)
+	await ctx.tree.physics_frame
+	await ctx.tree.physics_frame
+	var kept: Array = _station_entries(mgr.stored_data(FOCUS_E))
+	ctx.check(kept.size() == 1 and not _any_gone(kept),
+		"FIX3 unload: the negative-chunk STATION addition is kept (not gone-flagged) as cold data",
+		"FIX3 lost/gone-flagged the addition on unload (kept=" + str(kept.size()) + ")")
+
+	mover.global_position = WorldScale.chunk_origin(FOCUS_E) + Vector2(20.0, 20.0)
+	await ctx.tree.physics_frame
+	await ctx.tree.physics_frame
+	var rc: Node2D = mgr.active_container(FOCUS_E)
+	var reloaded: Array = _stations_in(rc)
+	var ok: bool = reloaded.size() == 1 \
+		and (reloaded[0] as Station).station_tag == TAG_E \
+		and world_pos.distance_to((reloaded[0] as Station).global_position) < 0.5
+	ctx.check(ok,
+		"FIX3 reload: the station restored at the SAME negative world pos " + str(world_pos) + " with tag " + str(TAG_E) + " -- floori/chunk_origin local-pos math round-trips across negatives",
+		"FIX3 negative round-trip wrong (count=" + str(reloaded.size()) + " pos_ok/tag: " + str(ok) + ")")
+
+	var orphans_after: int = int(Performance.get_monitor(Performance.OBJECT_ORPHAN_NODE_COUNT))
+	ctx.check(orphans_after <= orphans_before,
+		"FIX3 zero-orphan-leak: orphan node count did not grow across the negative-coord round trip (" + str(orphans_before) + " -> " + str(orphans_after) + ")",
+		"FIX3 orphan nodes leaked (" + str(orphans_before) + " -> " + str(orphans_after) + ")")
+
+	mgr.queue_free()
+	mover.queue_free()
+	await ctx.tree.physics_frame
+	await ctx.tree.physics_frame
+
+
+## FIX 4 -- a station's tag survives TWO full unload/reload cycles (hop away/back twice). Proves the addition
+## is STABLE cold data, not consumed on the first reload. It also exercises the STATION-skip in BOTH index
+## regimes: cycle 1's unload sees the entry appended BEYOND _content (no live node yet); cycle 1's reload
+## spawns a live node so cycle 2's unload sees the entry IN _content (the paired-loop `continue` path).
+func _leg_multi_cycle(ctx: TestContext) -> void:
+	var mgr: ChunkManager = ChunkManager.new()
+	mgr.load_radius = 1
+	mgr.world_seed = SEED
+	ctx.tree.root.add_child(mgr)
+	var mover: Node2D = Node2D.new()
+	ctx.tree.root.add_child(mover)
+	mgr.target = mover
+
+	mover.global_position = WorldScale.chunk_origin(FOCUS_F) + Vector2(20.0, 20.0)
+	await ctx.tree.physics_frame
+	await ctx.tree.physics_frame
+
+	var world_pos: Vector2 = WorldScale.chunk_origin(FOCUS_F) + PLACE_LOCAL_F
+	mgr.register_placement(world_pos, {"station_tag": String(TAG_F)})
+	await ctx.tree.physics_frame
+	ctx.check(_station_entries(mgr.stored_data(FOCUS_F)).size() == 1 and mgr.stored_data(FOCUS_F).dirty,
+		"FIX4 place: ONE STATION addition recorded on chunk " + str(FOCUS_F) + " (a dirty delta chunk)",
+		"FIX4 did not record the addition (adds=" + str(_station_entries(mgr.stored_data(FOCUS_F)).size()) + ")")
+
+	var orphans_before: int = int(Performance.get_monitor(Performance.OBJECT_ORPHAN_NODE_COUNT))
+	var away: Vector2 = WorldScale.chunk_origin(FOCUS_F + Vector2i(20, 20)) + Vector2(20.0, 20.0)
+	var home: Vector2 = WorldScale.chunk_origin(FOCUS_F) + Vector2(20.0, 20.0)
+
+	# --- CYCLE 1 (entry appended BEYOND _content on this unload) ---
+	mover.global_position = away
+	await ctx.tree.physics_frame
+	await ctx.tree.physics_frame
+	ctx.check(_station_entries(mgr.stored_data(FOCUS_F)).size() == 1 and not _any_gone(_station_entries(mgr.stored_data(FOCUS_F))),
+		"FIX4 cycle 1 unload: the addition is kept (not gone-flagged) as cold data",
+		"FIX4 cycle 1 lost/gone-flagged the addition (kept=" + str(_station_entries(mgr.stored_data(FOCUS_F)).size()) + ")")
+	mover.global_position = home
+	await ctx.tree.physics_frame
+	await ctx.tree.physics_frame
+	var r1: Array = _stations_in(mgr.active_container(FOCUS_F))
+	ctx.check(r1.size() == 1 and (r1[0] as Station).station_tag == TAG_F and world_pos.distance_to((r1[0] as Station).global_position) < 0.5,
+		"FIX4 cycle 1 reload: the station respawned once at its pos with tag " + str(TAG_F) + " (survived cycle 1)",
+		"FIX4 cycle 1 reload wrong (count=" + str(r1.size()) + ")")
+
+	# --- CYCLE 2 (entry now IN _content -- the paired-loop STATION `continue` path) ---
+	mover.global_position = away
+	await ctx.tree.physics_frame
+	await ctx.tree.physics_frame
+	ctx.check(_station_entries(mgr.stored_data(FOCUS_F)).size() == 1 and not _any_gone(_station_entries(mgr.stored_data(FOCUS_F))),
+		"FIX4 cycle 2 unload: the addition is STILL kept (not consumed by cycle 1, not gone-flagged now that it sits in _content)",
+		"FIX4 cycle 2 lost/gone-flagged the addition (kept=" + str(_station_entries(mgr.stored_data(FOCUS_F)).size()) + ")")
+	mover.global_position = home
+	await ctx.tree.physics_frame
+	await ctx.tree.physics_frame
+	var r2: Array = _stations_in(mgr.active_container(FOCUS_F))
+	ctx.check(r2.size() == 1 and (r2[0] as Station).station_tag == TAG_F and world_pos.distance_to((r2[0] as Station).global_position) < 0.5,
+		"FIX4 cycle 2 reload: the station + tag " + str(TAG_F) + " survived a SECOND full unload/reload cycle -- the delta is stable cold data, not consumed on first reload",
+		"FIX4 cycle 2 reload wrong (count=" + str(r2.size()) + ")")
+
+	var orphans_after: int = int(Performance.get_monitor(Performance.OBJECT_ORPHAN_NODE_COUNT))
+	ctx.check(orphans_after <= orphans_before,
+		"FIX4 zero-orphan-leak: orphan node count did not grow across BOTH unload/reload cycles (" + str(orphans_before) + " -> " + str(orphans_after) + ")",
+		"FIX4 orphan nodes leaked across the two cycles (" + str(orphans_before) + " -> " + str(orphans_after) + ")")
+
+	mgr.queue_free()
+	mover.queue_free()
+	await ctx.tree.physics_frame
+	await ctx.tree.physics_frame
+
+
 ## The live Station instances directly under a chunk container (empty if the container is null).
 func _stations_in(container: Node2D) -> Array:
 	var out: Array = []
@@ -227,6 +532,39 @@ func _any_gone(entries: Array) -> bool:
 		if bool((e["state"] as Dictionary).get("gone", false)):
 			return true
 	return false
+
+
+## The live Rock instances directly under a chunk container (empty if the container is null). Used by FIX 1
+## to drive the mine seam and to count that a mined-out rock did NOT respawn after reload.
+func _rocks_in(container: Node2D) -> Array:
+	var out: Array = []
+	if container == null:
+		return out
+	for child in container.get_children():
+		if child is Rock:
+			out.append(child)
+	return out
+
+
+## True iff the stored ChunkData has a MINERAL entry flagged `gone` (the mined-out-rock write-back result).
+## FIX 1's proof that the paired deactivate loop gone-flagged the null nodes[k] slot -- distinct from the
+## STATION addition it must instead keep.
+func _any_mineral_gone(cd: ChunkData) -> bool:
+	if cd == null:
+		return false
+	for e in cd.entries:
+		if int(e["type"]) == ChunkData.Kind.MINERAL and bool((e["state"] as Dictionary).get("gone", false)):
+			return true
+	return false
+
+
+## The Station in `stations` whose world position matches `pos` (within 0.5 px), or null. Lets FIX 2 pair
+## each reloaded station back to the position it was placed at -- proving no mixup between two placements.
+func _station_at(stations: Array, pos: Vector2) -> Station:
+	for s in stations:
+		if pos.distance_to((s as Station).global_position) < 0.5:
+			return s as Station
+	return null
 
 
 ## Per-Kind counts of a generated ChunkData's existing (non-STATION) baseline Kinds -- the determinism oracle.
