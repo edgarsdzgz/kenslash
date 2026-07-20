@@ -243,8 +243,10 @@ static func capture(node: Node, entry: Dictionary) -> bool:
 			# captured HERE: the ChunkManager SKIPS every addition kind in its paired loop (ChunkData.
 			# is_addition_kind), so this branch is never reached from deactivate -- it is defensive symmetry
 			# with the other permanent Kinds. A Station's params live on the entry from register_placement and
-			# never mutate; a Part-2.1 container is likewise identity-only. (Container CONTENTS write-back --
-			# serializing the store back into the entry on unload -- is Part 2.2, and will live in THIS branch.)
+			# never mutate. A container's CONTENTS write-back (serializing its store back into the entry on
+			# unload) is NOT captured through this paired nodes[i] loop either: like the DROP rebuild it scans
+			# the container's LIVE children by position in ChunkManager._deactivate_chunk (the only path that
+			# works when an addition sits BEYOND _content), so this branch stays a no-op for CONTAINER too.
 			return false
 		_:
 			return false

@@ -147,7 +147,8 @@ func _deactivate_chunk(coord: Vector2i) -> void:
 			# delta: it persists AS-IS across unload/reload and is NEVER `gone`-flagged. Skip EVERY addition
 			# kind here (generalized from the former STATION-only branch) for two reasons. (1) Its params
 			# already live on the entry from register_placement and never mutate, so there is nothing to
-			# capture (Part 2.1; a container's CONTENTS write-back is Part 2.2). (2) An addition registered
+			# capture HERE (a container's CONTENTS write-back is a SEPARATE live-children scan below,
+			# Part 2.2, not this paired loop). (2) An addition registered
 			# while the chunk was ALREADY active was appended to data.entries AFTER _content was built, so its
 			# index sits BEYOND nodes.size() -- without this skip the `i >= nodes.size()` guard below would
 			# wrongly gone-flag it. The live placeable node is a child of the container (spawned by Builder
@@ -167,6 +168,26 @@ func _deactivate_chunk(coord: Vector2i) -> void:
 			changed = true
 		elif ChunkContent.capture(nodes[i], entry):
 			changed = true
+	# --- Epic 2 Part 2.2 CONTAINER contents write-back ------------------------------------
+	# A live StorageContainer's `store` MUTATES during play (deposit/withdraw), so its CONTAINER
+	# addition entry -- recorded EMPTY at register_placement time -- must be refreshed with the
+	# CURRENT contents on unload, so they ride the delta through to the next reload. Like the DROP
+	# rebuild below (and UNLIKE the paired capture loop above), this scans the container's LIVE
+	# children and matches each StorageContainer to its CONTAINER entry by local_pos -- a placed
+	# container never moves, so position is a stable key. Scanning children (not nodes[i]) is what
+	# makes it work in BOTH index regimes: whether the entry sits IN _content (spawned on reload,
+	# index-aligned) or BEYOND it (registered while the chunk was already active, appended past
+	# _content -- the case the paired loop can only SKIP). capture_state() is the SAME serializer
+	# register_placement used, so placement and write-back can never disagree.
+	for child in container.get_children():
+		if child is StorageContainer:
+			var box: StorageContainer = child
+			for c_entry in data.entries:
+				if int(c_entry["type"]) == ChunkData.Kind.CONTAINER \
+						and (c_entry["local_pos"] as Vector2).distance_to(box.position) < 0.5:
+					c_entry["state"] = box.capture_state()
+					changed = true
+					break
 	# --- E3c DROP rebuild -----------------------------------------------------------------
 	# Drops are pure deltas: snapshot live Drop children into fresh Kind.DROP entries. This runs
 	# ONLY AFTER the paired loop above, so nodes[i] stays aligned to entries[i] during capture --

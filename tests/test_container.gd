@@ -31,14 +31,18 @@ const FOCUS_C: Vector2i = Vector2i(22000, -22000)          # Leg C: station + co
 const STATION_TAG_C: StringName = &"depot"                 # distinctive (not the scene default &"forge")
 const STATION_LOCAL_C: Vector2 = Vector2(120.0, 140.0)
 const CONTAINER_LOCAL_C: Vector2 = Vector2(360.0, 300.0)
+const FOCUS_D: Vector2i = Vector2i(23000, 23000)           # Leg E: contents persist across unload/reload
+const PLACE_LOCAL_D: Vector2 = Vector2(220.0, 160.0)
 const SEED: int = 7
 
 
 func run(ctx: TestContext) -> void:
-	print("[container] --- Epic 2 Part 2.1: a storage Container places for its cost + an empty container round-trips (kind-agnostic path) ---")
+	print("[container] --- Epic 2 Part 2.1/2.2: a storage Container places, transfers items atomically, and round-trips its contents (kind-agnostic path) ---")
 	await _leg_build_cost(ctx)
 	await _leg_persist(ctx)
 	await _leg_both_kinds(ctx)
+	await _leg_transfer(ctx)          # Part 2.2: atomic deposit/withdraw
+	await _leg_contents_persist(ctx)  # Part 2.2: contents ride the delta across unload/reload
 
 
 ## Leg A: Builder places a Container for its authored build cost (wood x4) ATOMICALLY, joins the "container"
@@ -208,6 +212,164 @@ func _leg_both_kinds(ctx: TestContext) -> void:
 	mover.queue_free()
 	await ctx.tree.physics_frame
 	await ctx.tree.physics_frame
+
+
+## Leg D (Part 2.2 TRANSFER): the atomic deposit/withdraw primitive, exercised directly on a StorageContainer's
+## store (no streaming needed -- pure inventory logic). Proves EXACT-count moves both ways with weight tracking,
+## and that an over-count OR a full-destination transfer REFUSES and moves NOTHING (the classic no-dupe/no-loss
+## atomic guarantee), and that a zero/negative move is a no-op.
+func _leg_transfer(ctx: TestContext) -> void:
+	var WOOD: ItemData = load("res://data/wood.tres")
+	var STONE: ItemData = load("res://data/stone.tres")
+	var AXE: ItemData = load("res://data/axe_data.tres")  # a ToolData: max_stack 1 (non-stackable)
+	var box: StorageContainer = StorageContainer.new()
+	ctx.tree.root.add_child(box)  # _ready joins the group (harmless here); the store is what we drive
+	var player_inv: Inventory = Inventory.new()
+	player_inv.add_item(WOOD, 10)
+	var p_wt0: float = player_inv.total_weight()
+
+	# DEPOSIT 4 wood player->container: exact counts on BOTH sides, weight rides with the items.
+	var moved: int = box.deposit(WOOD, 4, player_inv)
+	ctx.check(moved == 4 and player_inv.count_of(WOOD) == 6 and box.store.count_of(WOOD) == 4
+			and is_equal_approx(box.store.total_weight(), WOOD.weight * 4.0)
+			and is_equal_approx(player_inv.total_weight(), p_wt0 - WOOD.weight * 4.0),
+		"deposit: EXACTLY 4 wood moved player->container (player 10->6, container 0->4); weight shifted with them (container = 4*w, player down 4*w); no dupe/loss",
+		"deposit was not exact/weight-aware (moved=%d, player=%d, box=%d, box_wt=%.1f)" % [moved, player_inv.count_of(WOOD), box.store.count_of(WOOD), box.store.total_weight()])
+
+	# WITHDRAW 3 wood container->player: exact counts the other direction.
+	var moved_out: int = box.withdraw(WOOD, 3, player_inv)
+	ctx.check(moved_out == 3 and box.store.count_of(WOOD) == 1 and player_inv.count_of(WOOD) == 9,
+		"withdraw: EXACTLY 3 wood moved container->player (container 4->1, player 6->9) -- the mirror direction, no dupe/loss",
+		"withdraw was not exact (moved=%d, box=%d, player=%d)" % [moved_out, box.store.count_of(WOOD), player_inv.count_of(WOOD)])
+
+	# OVER-COUNT REFUSAL: withdraw 5 when only 1 is present -> move NOTHING, both sides byte-identical.
+	var box_w: int = box.store.count_of(WOOD)
+	var pl_w: int = player_inv.count_of(WOOD)
+	var over: int = box.withdraw(WOOD, 5, player_inv)
+	ctx.check(over == 0 and box.store.count_of(WOOD) == box_w and player_inv.count_of(WOOD) == pl_w,
+		"over-count REFUSES (withdraw 5 of 1): returns 0 and moves NOTHING -- container stays 1, player stays 9 (atomic, no partial, no loss)",
+		"over-count withdraw was not atomic (ret=%d, box=%d, player=%d)" % [over, box.store.count_of(WOOD), player_inv.count_of(WOOD)])
+
+	# ZERO / NEGATIVE: a no-op both ways (no move, returns 0), nothing perturbed.
+	var zero_dep: int = box.deposit(WOOD, 0, player_inv)
+	var neg_wd: int = box.withdraw(WOOD, -3, player_inv)
+	ctx.check(zero_dep == 0 and neg_wd == 0 and box.store.count_of(WOOD) == box_w and player_inv.count_of(WOOD) == pl_w,
+		"zero/negative move is a NO-OP: deposit(0) and withdraw(-3) each return 0 and change nothing on either side",
+		"zero/negative move was not a no-op (zero=%d, neg=%d)" % [zero_dep, neg_wd])
+
+	# FULL-DESTINATION REFUSAL: a 1-slot store already full (a non-stackable AXE) cannot accept a wood ->
+	# refuse, source untouched, destination byte-identical (snapshot/restore rollback proven).
+	var tiny: StorageContainer = StorageContainer.new()
+	ctx.tree.root.add_child(tiny)
+	tiny.store.slots.resize(1)          # a single-slot store
+	tiny.store.add_item(AXE, 1)         # slot 0 full (AXE is max_stack 1) -- no room for anything else
+	var full_inv: Inventory = Inventory.new()
+	full_inv.add_item(WOOD, 5)
+	var tiny_wt0: float = tiny.store.total_weight()
+	var full_ret: int = tiny.deposit(WOOD, 1, full_inv)
+	ctx.check(full_ret == 0 and full_inv.count_of(WOOD) == 5 and tiny.store.count_of(WOOD) == 0
+			and is_equal_approx(tiny.store.total_weight(), tiny_wt0),
+		"full-destination REFUSES: depositing into a 1-slot store already full moves NOTHING (source wood stays 5, container gains 0), store byte-identical -- atomic, no partial, no loss",
+		"full-destination deposit was not atomic (ret=%d, src=%d, dst_wood=%d)" % [full_ret, full_inv.count_of(WOOD), tiny.store.count_of(WOOD)])
+
+	# A refused deposit did NOT corrupt an UNRELATED item in the source (rollback touched only the tested item).
+	ctx.check(full_inv.count_of(WOOD) == 5,
+		"atomic isolation: the refused full-destination deposit left the source inventory wholly intact (wood still 5)",
+		"refused deposit corrupted the source (wood=%d)" % full_inv.count_of(WOOD))
+
+	box.queue_free()
+	tiny.queue_free()
+	await ctx.tree.physics_frame
+	await ctx.tree.physics_frame
+
+
+## Leg E (Part 2.2 CONTENTS PERSISTENCE): a container placed while active, DEPOSITED into (the realistic flow --
+## items added AFTER placement), then unloaded and reloaded, restores its EXACT contents. Proves the contents ride
+## the SAME placement delta: the unload write-back serializes the live store into the CONTAINER entry's `state`, and
+## spawn()->apply_state() rebuilds the store on reload. Hand-driven ChunkManager (load_radius 1 -> one hop unloads).
+func _leg_contents_persist(ctx: TestContext) -> void:
+	var WOOD: ItemData = load("res://data/wood.tres")
+	var STONE: ItemData = load("res://data/stone.tres")
+	var mgr: ChunkManager = ChunkManager.new()
+	mgr.load_radius = 1
+	mgr.world_seed = SEED
+	ctx.tree.root.add_child(mgr)
+	var mover: Node2D = Node2D.new()
+	ctx.tree.root.add_child(mover)
+	mgr.target = mover
+
+	mover.global_position = WorldScale.chunk_origin(FOCUS_D) + Vector2(20.0, 20.0)
+	await ctx.tree.physics_frame
+	await ctx.tree.physics_frame
+	var container: Node2D = mgr.active_container(FOCUS_D)
+
+	# Place a live container WHILE ACTIVE + register the (empty) addition -- the entry appends BEYOND _content.
+	var world_pos: Vector2 = WorldScale.chunk_origin(FOCUS_D) + PLACE_LOCAL_D
+	var live_box: StorageContainer = CONTAINER_SCENE.instantiate() as StorageContainer
+	container.add_child(live_box)
+	live_box.global_position = world_pos
+	mgr.register_placement(world_pos, live_box.placement_kind(), live_box.capture_state())
+
+	# DEPOSIT into the live container AFTER placement (so the contents exist only on the live node, NOT yet in
+	# the recorded delta -- exactly what the unload write-back must capture).
+	var source: Inventory = Inventory.new()
+	source.add_item(WOOD, 7)
+	source.add_item(STONE, 3)
+	live_box.deposit(WOOD, 5, source)
+	live_box.deposit(STONE, 2, source)
+	await ctx.tree.physics_frame
+	ctx.check(live_box.store.count_of(WOOD) == 5 and live_box.store.count_of(STONE) == 2,
+		"contents setup: the live placed container holds 5 wood + 2 stone after two deposits (source drained accordingly)",
+		"contents setup wrong (wood=%d, stone=%d)" % [live_box.store.count_of(WOOD), live_box.store.count_of(STONE)])
+
+	var orphans_before: int = int(Performance.get_monitor(Performance.OBJECT_ORPHAN_NODE_COUNT))
+
+	# UNLOAD: the contents write-back must serialize the live store into the CONTAINER delta `state`.
+	mover.global_position = WorldScale.chunk_origin(FOCUS_D + Vector2i(20, 20)) + Vector2(20.0, 20.0)
+	await ctx.tree.physics_frame
+	await ctx.tree.physics_frame
+	var adds: Array = _container_entries(mgr.stored_data(FOCUS_D))
+	var wrote_ok: bool = adds.size() == 1 and not _any_gone(adds) \
+		and _entry_count(adds[0], WOOD) == 5 and _entry_count(adds[0], STONE) == 2
+	ctx.check(wrote_ok,
+		"persist-across-unload: the CONTAINER delta captured its live contents on unload (5 wood + 2 stone serialized as [item_path, count] pairs) -- contents rode the write-back into cold data, kept (not gone-flagged)",
+		"contents write-back wrong (adds=%d, wood=%d, stone=%d)" % [adds.size(), (_entry_count(adds[0], WOOD) if adds.size() == 1 else -1), (_entry_count(adds[0], STONE) if adds.size() == 1 else -1)])
+
+	# RELOAD: spawn()->apply_state() rebuilds the store from the delta contents.
+	mover.global_position = WorldScale.chunk_origin(FOCUS_D) + Vector2(20.0, 20.0)
+	await ctx.tree.physics_frame
+	await ctx.tree.physics_frame
+	var rc: Node2D = mgr.active_container(FOCUS_D)
+	var reloaded: Array = _containers_in(rc)
+	var restore_ok: bool = reloaded.size() == 1 \
+		and (reloaded[0] as StorageContainer).store.count_of(WOOD) == 5 \
+		and (reloaded[0] as StorageContainer).store.count_of(STONE) == 2 \
+		and world_pos.distance_to((reloaded[0] as StorageContainer).global_position) < 0.5
+	ctx.check(restore_ok,
+		"reload-round-trip: the container respawned at its pos holding its EXACT contents (5 wood + 2 stone restored, no loss/dupe) -- dormant delta contents became live stacks again",
+		"contents did not round-trip (count=%d, wood=%d, stone=%d)" % [reloaded.size(), (int((reloaded[0] as StorageContainer).store.count_of(WOOD)) if reloaded.size() == 1 else -1), (int((reloaded[0] as StorageContainer).store.count_of(STONE)) if reloaded.size() == 1 else -1)])
+
+	var orphans_after: int = int(Performance.get_monitor(Performance.OBJECT_ORPHAN_NODE_COUNT))
+	ctx.check(orphans_after <= orphans_before,
+		"zero-orphan-leak: orphan node count did not grow across deposit -> unload -> reload with contents (" + str(orphans_before) + " -> " + str(orphans_after) + ")",
+		"orphan nodes leaked across the contents round trip (" + str(orphans_before) + " -> " + str(orphans_after) + ")")
+
+	mgr.queue_free()
+	mover.queue_free()
+	await ctx.tree.physics_frame
+	await ctx.tree.physics_frame
+
+
+## Sum the count of `item` (matched by resource_path) across a CONTAINER entry's serialized `contents` pairs --
+## the read-side of container.gd's [item_path, count] serialization, letting Leg E assert the delta captured the
+## exact contents. 0 if the entry has no contents for that item.
+func _entry_count(entry: Dictionary, item: ItemData) -> int:
+	var total: int = 0
+	var contents: Array = (entry["state"] as Dictionary).get("contents", [])
+	for pair in contents:
+		if String(pair[0]) == item.resource_path:
+			total += int(pair[1])
+	return total
 
 
 ## The live StorageContainer instances directly under a chunk container / holder (empty if null).
