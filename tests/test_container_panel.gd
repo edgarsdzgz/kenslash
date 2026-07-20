@@ -3,16 +3,18 @@ class_name TestContainerPanel extends RefCounted
 ## "Track B -- Building"). Where test_container proves the container ENTITY + its atomic deposit/withdraw + contents
 ## persistence, this leg proves the OPERABLE UI slice: a player stands beside a placed StorageContainer, presses
 ## 'f', sees the container's contents alongside their own inventory, and moves items either way THROUGH the panel.
-## UI-style STRUCTURAL assertions (state + structure, never pixels), mirroring tests/test_craft_menu.gd. Four legs:
+## UI-style STRUCTURAL assertions (state + structure, never pixels), mirroring tests/test_craft_menu.gd. Legs:
 ##   * PANEL API (pure, off ui/container_panel.tscn): open() lists the container's stored contents AND the player
 ##     inventory; deposit/withdraw THROUGH the panel move EXACT items both ways and REFRESH the listing; an
-##     over-count withdraw refuses; close() drops the open flag.
-##   * INTERACTION PRIORITY (real Player + Station + Container nodes): 'f' beside a container raises the container-
-##     open request (prompt "Open"); 'f' beside BOTH a station and a container raises the CRAFT request instead
-##     (fixed priority station-craft > container-transfer, only ONE opens); 'f' with nothing but a bush near still
-##     HARVESTS (the harvest fallthrough is intact).
+##     over-count withdraw refuses; Escape (ui_cancel) closes the open panel; close() drops the open flag.
+##   * INTERACTION PRIORITY (real Player + Station + Container + bush nodes): 'f' beside a container raises the
+##     container-open request (prompt "Open"); 'f' beside BOTH a station and a container raises the CRAFT request
+##     instead (station-craft > container-transfer, only ONE opens); 'f' beside BOTH a container and a bush opens
+##     the CONTAINER (container-transfer > harvest, bush untouched); 'f' with nothing but a bush near still HARVESTS.
 ##   * INTEGRATION (shipped streaming_world.tscn): the HUD polls the request and OPENS the hosted ContainerPanel
-##     with the player's live inventory, listing both stores; walking the container out of reach AUTO-CLOSES it.
+##     with the player's live inventory, listing both stores; walking the container out of reach AUTO-CLOSES it
+##     (out-of-range arm); a FREED bound container AUTO-CLOSES it (is_instance_valid arm); 'f' TOGGLES open ->
+##     close -> OPEN across three presses.
 ##   * MUTUAL EXCLUSION (streaming_world.tscn): with the container panel open, an 'f' beside a station opens the
 ##     craft menu and CLOSES the container panel -- only ONE of the two is ever open at once.
 ## Self-contained: builds its own panel/players/containers/stations/bush under private holders at REMOTE coords
@@ -31,6 +33,10 @@ const SEAM: Vector2 = Vector2(-140000.0, 140000.0)
 ## Distinct integration streaming spots, clear of test_craft_menu's (8000,8000)/(-8000,-8000) and each other.
 const INT_SPOT: Vector2 = Vector2(12000.0, -12000.0)
 const EXCL_SPOT: Vector2 = Vector2(16000.0, -16000.0)
+## Two more far-apart streaming spots (clear of INT/EXCL + each other): the 'f' open->close->OPEN toggle, and the
+## freed-bound-container auto-close (the is_instance_valid arm, distinct from INT_SPOT's out-of-range arm).
+const TOGGLE_SPOT: Vector2 = Vector2(40000.0, -40000.0)
+const FREED_SPOT: Vector2 = Vector2(44000.0, -44000.0)
 
 
 func run(ctx: TestContext) -> void:
@@ -91,6 +97,16 @@ func _panel_api(ctx: TestContext) -> void:
 	ctx.check(over == 0 and box.store.count_of(STONE) == box_s and player_inv.count_of(STONE) == pl_s,
 		"over-count withdraw THROUGH the panel REFUSES (withdraw 5 of 1): returns 0 and moves NOTHING -- the container's atomic guarantee surfaces unchanged",
 		"panel over-count withdraw was not atomic (ret=%d, box=%d, player=%d)" % [over, box.store.count_of(STONE), player_inv.count_of(STONE)])
+
+	# --- Escape (ui_cancel) closes the OPEN panel: inject the action event, the _unhandled_input dismiss hook eats it ---
+	var esc: InputEventAction = InputEventAction.new()
+	esc.action = &"ui_cancel"
+	esc.pressed = true
+	panel._unhandled_input(esc)
+	ctx.check(not panel.is_open,
+		"Escape (ui_cancel) closes the open container panel (the standalone _unhandled_input dismiss hook, mirroring ui/craft_menu.gd)",
+		"Escape did not close the open container panel (open=%s)" % [str(panel.is_open)])
+	panel.open(box, player_inv)  # re-open so the close() assertion below still has an open panel to close
 
 	# --- close() drops the open flag ---
 	panel.close()
@@ -167,6 +183,27 @@ func _interaction_priority(ctx: TestContext) -> void:
 	ctx.check(not is_instance_valid(bush) and _count_of(p_bush, STICK) == want_stick,
 		"harvest 'f' STILL WORKS with nothing else near: the bush freed + " + str(want_stick) + " Stick collected (container routing did not steal the harvest)",
 		"harvest broke with a container in the codebase (bush_valid=%s, stick=%d)" % [str(is_instance_valid(bush)), _count_of(p_bush, STICK)])
+
+	# (d) CONTAINER over HARVEST: a player beside BOTH a container AND a bush -> 'f' opens the container, bush intact
+	# (fixed priority CONTAINER > HARVEST, the second rung of station>container>harvest).
+	var p_cb: Player = _spawn_player(holder, SEAM + Vector2(120000.0, 0.0))
+	var box3: StorageContainer = CONTAINER_SCENE.instantiate() as StorageContainer
+	holder.add_child(box3)
+	box3.global_position = p_cb.global_position + Vector2(30.0, 0.0)  # 30 px < CONTAINER_REACH 80 px
+	var bush2: Bush = BUSH_SCENE.instantiate() as Bush
+	holder.add_child(bush2)
+	bush2.global_position = p_cb.global_position + Vector2(15.0, 0.0)  # 15 px < harvest reach (one tile, 40 px)
+	await ctx.tree.physics_frame
+	await ctx.tree.physics_frame
+	ctx.check(p_cb.interaction_prompt() == "Open",
+		"beside BOTH a Container and a bush the prompt is \"Open\" (container-transfer takes 'f' priority over harvest)",
+		"priority prompt wrong beside container+bush (\"" + p_cb.interaction_prompt() + "\")")
+	p_cb.interact()  # container priority -> container-open request, harvest NOT run
+	await ctx.tree.physics_frame
+	await ctx.tree.physics_frame
+	ctx.check(p_cb._interaction.container_open_pending() and is_instance_valid(bush2) and _count_of(p_cb, STICK) == 0,
+		"'f' beside BOTH a Container and a bush raises the CONTAINER-open request and does NOT harvest the bush (CONTAINER > HARVEST) -- the bush is untouched",
+		"container-over-harvest priority wrong (container=%s, bush_valid=%s, stick=%d)" % [str(p_cb._interaction.container_open_pending()), str(is_instance_valid(bush2)), _count_of(p_cb, STICK)])
 
 	holder.queue_free()
 	await ctx.tree.physics_frame
@@ -253,6 +290,52 @@ func _integration(ctx: TestContext) -> void:
 	ctx.check(cm.is_open and not cp.is_open,
 		"[exclusion] opening the craft menu ('f' beside a station) CLOSED the still-in-range container panel -- only ONE panel (craft OR container) open at a time",
 		"[exclusion] both panels open or wrong panel open (craft=%s, container=%s)" % [str(cm.is_open), str(cp.is_open)])
+
+	# --- TOGGLE_SPOT: 'f' TOGGLES the container panel open -> close -> OPEN across three presses (mirrors the craft
+	# menu toggle regression). Far from EXCL_SPOT, so its forge/container streamed out of reach -- no station here. ---
+	player.global_position = TOGGLE_SPOT
+	var box_t: StorageContainer = CONTAINER_SCENE.instantiate() as StorageContainer
+	sw.add_child(box_t)
+	box_t.global_position = TOGGLE_SPOT + Vector2(20.0, 0.0)
+	await ctx.tree.physics_frame
+	await ctx.settle_idle()
+	await ctx.settle_idle()
+	player.interact()   # 1st press -> open (any lingering craft menu auto-closes: no station in range here)
+	await ctx.settle_idle()
+	await ctx.settle_idle()
+	var t_open1: bool = cp.is_open and cp.bound_container() == box_t
+	player.interact()   # 2nd press -> close
+	await ctx.settle_idle()
+	await ctx.settle_idle()
+	var t_closed2: bool = cp.is_open
+	player.interact()   # 3rd press -> reopen
+	await ctx.settle_idle()
+	await ctx.settle_idle()
+	var t_open3: bool = cp.is_open
+	ctx.check(t_open1 and not t_closed2 and t_open3,
+		"'f' TOGGLES the container panel open -> close -> OPEN across three presses (the third press reopens) -- mirrors test_craft_menu's toggle regression",
+		"container panel 'f' toggle open/close/open failed (open1=%s, closed2=%s, open3=%s)" % [str(t_open1), str(t_closed2), str(t_open3)])
+
+	# --- FREED_SPOT: open the panel, then FREE the bound container -> the HUD's is_instance_valid arm AUTO-CLOSES it
+	# (distinct from INT_SPOT's out-of-range arm: here the container is freed while still WITHIN reach). ---
+	player.global_position = FREED_SPOT
+	await ctx.settle_idle()  # box_t now out of reach -> the still-open panel auto-closes before we re-open on box_f
+	await ctx.settle_idle()
+	var box_f: StorageContainer = CONTAINER_SCENE.instantiate() as StorageContainer
+	sw.add_child(box_f)
+	box_f.global_position = FREED_SPOT + Vector2(20.0, 0.0)
+	await ctx.tree.physics_frame
+	await ctx.settle_idle()
+	player.interact()  # open the panel bound to box_f
+	await ctx.settle_idle()
+	await ctx.settle_idle()
+	var f_opened: bool = cp.is_open and cp.bound_container() == box_f
+	box_f.queue_free()  # free the bound container out from under the OPEN panel (still in range)
+	await ctx.settle_idle()
+	await ctx.settle_idle()
+	ctx.check(f_opened and not cp.is_open,
+		"a FREED bound container AUTO-CLOSES the open panel (the HUD's is_instance_valid arm, distinct from the out-of-range arm) -- a transfer can never run against a freed container",
+		"freed-container auto-close failed (opened=%s, still_open=%s)" % [str(f_opened), str(cp.is_open)])
 
 	sw.queue_free()
 	await ctx.settle_idle()

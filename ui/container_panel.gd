@@ -73,7 +73,7 @@ func _unhandled_input(event: InputEvent) -> void:
 ## rows reflect the post-transfer stores. Returns what deposit() returned (`n` on success, 0 on any shortfall/full
 ## destination). A no-op returning 0 if the panel is not bound (open() never ran).
 func deposit(item: ItemData, n: int) -> int:
-	if _container == null or _inventory == null:
+	if not _valid_container() or _inventory == null:
 		return 0
 	var moved: int = _container.deposit(item, n, _inventory)
 	if moved > 0:
@@ -85,7 +85,7 @@ func deposit(item: ItemData, n: int) -> int:
 ## of deposit(). Route to StorageContainer.withdraw (same atomic guarantee, opposite direction) and REFRESH on any
 ## move. Returns withdraw()'s result (`n` on success, 0 on any shortfall/full destination).
 func withdraw(item: ItemData, n: int) -> int:
-	if _container == null or _inventory == null:
+	if not _valid_container() or _inventory == null:
 		return 0
 	var moved: int = _container.withdraw(item, n, _inventory)
 	if moved > 0:
@@ -104,7 +104,7 @@ func bound_container() -> StorageContainer:
 ## logical listing the container side shows. Empty when nothing is bound/stored. For the headless test to assert
 ## the panel surfaced the container's contents without parsing a label.
 func container_ids() -> Array[ItemData]:
-	return _distinct_items(_container.store) if _container != null else ([] as Array[ItemData])
+	return _distinct_items(_container.store) if _valid_container() else ([] as Array[ItemData])
 
 
 ## The DISTINCT items currently in the bound player inventory, in slot order (a COPY) -- the inventory side's
@@ -130,8 +130,18 @@ func _distinct_items(inv: Inventory) -> Array[ItemData]:
 ## Repaint BOTH listings (the container's store + the player's inventory). The one place the rows are (re)built --
 ## open() and a successful deposit()/withdraw() both call it.
 func _rebuild() -> void:
-	_repaint_rows(_container_list, _container.store if _container != null else null)
+	_repaint_rows(_container_list, _container.store if _valid_container() else null)
 	_repaint_rows(_inventory_list, _inventory)
+
+
+## True only when a container is bound AND still a LIVE node. A FREED bound container is NOT == null, so a bare
+## `_container == null` guard would sail past and DEREFERENCE the freed instance (_container.store / .deposit) --
+## crashing instead of no-op'ing, contradicting this file's own "safely no-ops on a freed bound container" docstring.
+## is_instance_valid mirrors the freed-node discipline the HUD's auto-close, Interaction.nearest_container, and
+## Station.tags_in_range all use. Every method that dereferences _container routes through this so the panel safely
+## no-ops (returns 0 / [] / an empty repaint) against a container the player left that has since been freed.
+func _valid_container() -> bool:
+	return _container != null and is_instance_valid(_container)
 
 
 ## Rebuild ONE list's presentation rows (one Label per distinct item: its display name + total count). Purely

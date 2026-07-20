@@ -120,6 +120,9 @@ func capture_state() -> Dictionary:
 ## FRESH instance whose store starts empty, BEFORE add_child (so it is populated the moment it enters the tree).
 ## A missing/empty `contents` (a Part-2.1 identity entry, or a plain {} placement) restores an empty store -- the
 ## empty round-trip still works. A null item path is skipped defensively (a renamed/removed resource never crashes).
+## NOTE: item COUNTS are preserved EXACTLY, but slot ORDER is not guaranteed -- add_item compacts each stack from
+## slot 0, so a store that had gaps re-lands its stacks packed. Cosmetic only (deposits fill compactly anyway); the
+## totals a caller reads via count_of() are identical.
 func apply_state(state: Dictionary) -> void:
 	var contents: Array = state.get(CONTENTS_KEY, [])
 	for pair in contents:

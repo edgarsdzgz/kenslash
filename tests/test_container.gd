@@ -1,12 +1,12 @@
 class_name TestContainer extends RefCounted
-## EPIC 2 Phase 2 Part 2.1 -- storage CONTAINER entity + the KIND-AGNOSTIC placement/persistence path (plan-
-## epic2-parts.md Phase 2). A storage Container is the SECOND placeable, riding the SAME build + streaming-delta
-## path a Station does (resolving the reviewer-flagged place_station STATION-hardcoding): it differs only in its
-## placement_kind() (Kind.CONTAINER) and its own build cost. NARROW SCOPE (Part 2.1): the entity places for its
-## cost, exposes an internal Inventory, and an EMPTY container round-trips across unload/reload. Item TRANSFER +
-## CONTENTS persistence are Part 2.2 -- NOT asserted here.
+## EPIC 2 Phase 2 Parts 2.1 + 2.2 -- storage CONTAINER entity, the KIND-AGNOSTIC placement/persistence path, AND
+## atomic item TRANSFER + CONTENTS persistence (plan-epic2-parts.md Phase 2). A storage Container is the SECOND
+## placeable, riding the SAME build + streaming-delta path a Station does (resolving the reviewer-flagged
+## place_station STATION-hardcoding): it differs only in its placement_kind() (Kind.CONTAINER) and its own build
+## cost. Part 2.1 proves the entity places for its cost, exposes an internal Inventory, and round-trips across
+## unload/reload; Part 2.2 adds atomic deposit/withdraw and contents that ride the placement delta.
 ##
-## Three self-contained legs, each at REMOTE coords clear of every other module's content + of each other, so no
+## SEVEN self-contained legs, each at REMOTE coords clear of every other module's content + of each other, so no
 ## placeable wanders into another module's group scan and no two hand-driven managers co-activate:
 ##   A (build cost, Builder-direct -- mirrors test_builder): a Container PLACES for its authored build cost
 ##     (wood x4) ATOMICALLY -- exact consume, joins the "container" group, exposes its internal Inventory; a short
@@ -16,6 +16,17 @@ class_name TestContainer extends RefCounted
 ##     zero-orphan. Proves the kind-agnostic delta path + ChunkData.is_addition_kind cover CONTAINER.
 ##   C (BOTH kinds in ONE chunk): a Station AND a Container placed in the same chunk BOTH round-trip -- each back
 ##     at its own position as its own kind, no loss/double/mixup. Proves the path handles a heterogeneous mix.
+##   D (Part 2.2 TRANSFER): the atomic deposit/withdraw primitive driven directly on a container's store -- exact
+##     counts both ways with weight tracking; over-count / full-destination / zero-negative all REFUSE and move
+##     NOTHING (the no-dupe/no-loss guarantee).
+##   E (Part 2.2 CONTENTS PERSISTENCE): a placed container DEPOSITED into after placement, then unloaded + reloaded,
+##     restores its EXACT contents -- the unload write-back serializes the live store into the delta, spawn()
+##     ->apply_state() rebuilds it; zero-orphan.
+##   F (Part 2.2 TWO CONTAINERS in ONE chunk): two placed containers with DISTINCT contents at DISTINCT positions
+##     each round-trip their OWN contents -- proving the unload write-back matches each live box to its OWN entry
+##     by local_pos with more than one box present; zero-orphan.
+##   G (Part 2.2 DEFENSIVE load-failure): apply_state carrying an item path that does NOT resolve to an ItemData is
+##     SKIPPED (the null-guard drops it) with no crash, and the other valid contents still restore.
 ## Registered in tests/smoke_slash.gd after TestPlacementPersist.
 
 const CONTAINER_SCENE: PackedScene = preload("res://world/container.tscn")
@@ -31,8 +42,11 @@ const FOCUS_C: Vector2i = Vector2i(22000, -22000)          # Leg C: station + co
 const STATION_TAG_C: StringName = &"depot"                 # distinctive (not the scene default &"forge")
 const STATION_LOCAL_C: Vector2 = Vector2(120.0, 140.0)
 const CONTAINER_LOCAL_C: Vector2 = Vector2(360.0, 300.0)
-const FOCUS_D: Vector2i = Vector2i(23000, 23000)           # Leg E: contents persist across unload/reload
+const FOCUS_D: Vector2i = Vector2i(23000, 23000)           # _leg_contents_persist (Leg E; Leg D/transfer is coordless)
 const PLACE_LOCAL_D: Vector2 = Vector2(220.0, 160.0)
+const FOCUS_F: Vector2i = Vector2i(24000, -24000)          # Leg F: two containers, distinct contents, one chunk
+const PLACE_LOCAL_F1: Vector2 = Vector2(120.0, 120.0)
+const PLACE_LOCAL_F2: Vector2 = Vector2(360.0, 300.0)
 const SEED: int = 7
 
 
@@ -43,6 +57,8 @@ func run(ctx: TestContext) -> void:
 	await _leg_both_kinds(ctx)
 	await _leg_transfer(ctx)          # Part 2.2: atomic deposit/withdraw
 	await _leg_contents_persist(ctx)  # Part 2.2: contents ride the delta across unload/reload
+	await _leg_two_containers(ctx)    # Part 2.2: two containers, distinct contents, one chunk
+	await _leg_bad_path_skipped(ctx)  # Part 2.2: a non-ItemData path in apply_state is skipped, no crash
 
 
 ## Leg A: Builder places a Container for its authored build cost (wood x4) ATOMICALLY, joins the "container"
@@ -220,7 +236,6 @@ func _leg_both_kinds(ctx: TestContext) -> void:
 ## atomic guarantee), and that a zero/negative move is a no-op.
 func _leg_transfer(ctx: TestContext) -> void:
 	var WOOD: ItemData = load("res://data/wood.tres")
-	var STONE: ItemData = load("res://data/stone.tres")
 	var AXE: ItemData = load("res://data/axe_data.tres")  # a ToolData: max_stack 1 (non-stackable)
 	var box: StorageContainer = StorageContainer.new()
 	ctx.tree.root.add_child(box)  # _ready joins the group (harmless here); the store is what we drive
@@ -358,6 +373,115 @@ func _leg_contents_persist(ctx: TestContext) -> void:
 	mover.queue_free()
 	await ctx.tree.physics_frame
 	await ctx.tree.physics_frame
+
+
+## Leg F (Part 2.2 TWO CONTAINERS in ONE chunk): two placed containers with DISTINCT contents at DISTINCT positions
+## in the SAME chunk EACH round-trip their OWN contents. The unload write-back matches each live box to its OWN
+## CONTAINER entry by local_pos -- this proves that match holds with MORE THAN ONE box present (a position-swap /
+## last-writer-wins bug would surface HERE, not in the single-box Leg E), valuable before Phase 3. Hand-driven
+## ChunkManager (load_radius 1 -> one hop unloads), zero-orphan.
+func _leg_two_containers(ctx: TestContext) -> void:
+	var WOOD: ItemData = load("res://data/wood.tres")
+	var STONE: ItemData = load("res://data/stone.tres")
+	var mgr: ChunkManager = ChunkManager.new()
+	mgr.load_radius = 1
+	mgr.world_seed = SEED
+	ctx.tree.root.add_child(mgr)
+	var mover: Node2D = Node2D.new()
+	ctx.tree.root.add_child(mover)
+	mgr.target = mover
+
+	mover.global_position = WorldScale.chunk_origin(FOCUS_F) + Vector2(20.0, 20.0)
+	await ctx.tree.physics_frame
+	await ctx.tree.physics_frame
+	var container: Node2D = mgr.active_container(FOCUS_F)
+
+	# Place TWO live containers WHILE ACTIVE at two distinct local positions + register each (empty) addition.
+	var pos1: Vector2 = WorldScale.chunk_origin(FOCUS_F) + PLACE_LOCAL_F1
+	var pos2: Vector2 = WorldScale.chunk_origin(FOCUS_F) + PLACE_LOCAL_F2
+	var box1: StorageContainer = CONTAINER_SCENE.instantiate() as StorageContainer
+	container.add_child(box1)
+	box1.global_position = pos1
+	mgr.register_placement(pos1, box1.placement_kind(), box1.capture_state())
+	var box2: StorageContainer = CONTAINER_SCENE.instantiate() as StorageContainer
+	container.add_child(box2)
+	box2.global_position = pos2
+	mgr.register_placement(pos2, box2.placement_kind(), box2.capture_state())
+
+	# DISTINCT contents per box, added AFTER placement (only on the live nodes, not yet in the recorded delta).
+	var src: Inventory = Inventory.new()
+	src.add_item(WOOD, 9)
+	src.add_item(STONE, 9)
+	box1.deposit(WOOD, 6, src)   # box1 @ pos1 -> 6 wood only
+	box2.deposit(STONE, 4, src)  # box2 @ pos2 -> 4 stone only
+	await ctx.tree.physics_frame
+	ctx.check(box1.store.count_of(WOOD) == 6 and box1.store.count_of(STONE) == 0
+			and box2.store.count_of(STONE) == 4 and box2.store.count_of(WOOD) == 0,
+		"two-container setup: box@pos1 holds 6 wood ONLY, box@pos2 holds 4 stone ONLY (distinct contents at distinct positions)",
+		"two-container setup wrong (b1_wood=%d, b1_stone=%d, b2_stone=%d, b2_wood=%d)" % [box1.store.count_of(WOOD), box1.store.count_of(STONE), box2.store.count_of(STONE), box2.store.count_of(WOOD)])
+
+	var orphans_before: int = int(Performance.get_monitor(Performance.OBJECT_ORPHAN_NODE_COUNT))
+
+	# UNLOAD: the write-back must serialize EACH live store into ITS OWN CONTAINER entry (matched by local_pos).
+	mover.global_position = WorldScale.chunk_origin(FOCUS_F + Vector2i(20, 20)) + Vector2(20.0, 20.0)
+	await ctx.tree.physics_frame
+	await ctx.tree.physics_frame
+
+	# RELOAD: spawn()->apply_state() rebuilds BOTH stores from their own delta contents.
+	mover.global_position = WorldScale.chunk_origin(FOCUS_F) + Vector2(20.0, 20.0)
+	await ctx.tree.physics_frame
+	await ctx.tree.physics_frame
+	var rc: Node2D = mgr.active_container(FOCUS_F)
+	var r1: StorageContainer = _container_at(rc, pos1)
+	var r2: StorageContainer = _container_at(rc, pos2)
+	var each_ok: bool = _containers_in(rc).size() == 2 and r1 != null and r2 != null \
+		and r1.store.count_of(WOOD) == 6 and r1.store.count_of(STONE) == 0 \
+		and r2.store.count_of(STONE) == 4 and r2.store.count_of(WOOD) == 0
+	ctx.check(each_ok,
+		"two-container round-trip: EACH container restored its OWN contents BY POSITION (box@pos1 = 6 wood, box@pos2 = 4 stone; no mixup, no cross-contamination, no loss) -- the local_pos write-back match holds with 2 boxes in one chunk",
+		"two-container contents mismatched on reload (count=%d, p1=%s, p2=%s)" % [_containers_in(rc).size(), (str(r1.store.count_of(WOOD)) + "w/" + str(r1.store.count_of(STONE)) + "s" if r1 != null else "nil"), (str(r2.store.count_of(WOOD)) + "w/" + str(r2.store.count_of(STONE)) + "s" if r2 != null else "nil")])
+
+	var orphans_after: int = int(Performance.get_monitor(Performance.OBJECT_ORPHAN_NODE_COUNT))
+	ctx.check(orphans_after <= orphans_before,
+		"zero-orphan-leak: orphan node count did not grow across the two-container round trip (" + str(orphans_before) + " -> " + str(orphans_after) + ")",
+		"orphan nodes leaked across the two-container round trip (" + str(orphans_before) + " -> " + str(orphans_after) + ")")
+
+	mgr.queue_free()
+	mover.queue_free()
+	await ctx.tree.physics_frame
+	await ctx.tree.physics_frame
+
+
+## Leg G (Part 2.2 DEFENSIVE load-failure): apply_state carrying an item path that does NOT resolve to an ItemData
+## is SKIPPED by the `if item != null` guard (load()...as ItemData yields null -- the same null a renamed/removed
+## resource produces) with NO crash, and the OTHER valid contents still restore. A non-ItemData path (a real scene)
+## is used instead of a truly missing one so the reload exercises the identical null-guard WITHOUT the engine
+## logging a load-failure ERROR line into the smoke output.
+func _leg_bad_path_skipped(ctx: TestContext) -> void:
+	var WOOD: ItemData = load("res://data/wood.tres")
+	var box: StorageContainer = StorageContainer.new()
+	ctx.tree.root.add_child(box)
+	# One path that resolves to a NON-ItemData resource (dropped by the null-guard) alongside one valid wood entry.
+	box.apply_state({"contents": [
+		["res://world/container.tscn", 3],
+		[WOOD.resource_path, 2],
+	]})
+	await ctx.tree.physics_frame
+	ctx.check(box.store.count_of(WOOD) == 2,
+		"load-failure SKIPPED: apply_state drops a path that is not an ItemData (no crash) and still restores the valid wood x2 -- a missing/renamed item resource never takes down the whole reload",
+		"bad-path apply_state did not skip cleanly (wood=%d)" % box.store.count_of(WOOD))
+	box.queue_free()
+	await ctx.tree.physics_frame
+
+
+## The live StorageContainer under `container` whose global_position matches `world_pos` (within 0.5 px), or null.
+## Lets Leg F assert each reloaded box restored its OWN contents BY POSITION (a placed container never moves, so
+## position is a stable key -- the same key the unload write-back matches on).
+func _container_at(container: Node2D, world_pos: Vector2) -> StorageContainer:
+	for box in _containers_in(container):
+		if world_pos.distance_to((box as StorageContainer).global_position) < 0.5:
+			return box as StorageContainer
+	return null
 
 
 ## Sum the count of `item` (matched by resource_path) across a CONTAINER entry's serialized `contents` pairs --

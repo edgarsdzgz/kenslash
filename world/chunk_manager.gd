@@ -178,9 +178,11 @@ func _deactivate_chunk(coord: Vector2i) -> void:
 	# makes it work in BOTH index regimes: whether the entry sits IN _content (spawned on reload,
 	# index-aligned) or BEYOND it (registered while the chunk was already active, appended past
 	# _content -- the case the paired loop can only SKIP). capture_state() is the SAME serializer
-	# register_placement used, so placement and write-back can never disagree.
+	# register_placement used, so placement and write-back can never disagree. A freed / queued-for-deletion
+	# child is skipped (is_instance_valid + is_queued_for_deletion), mirroring the DROP rebuild's guard below --
+	# capture_state() only ever runs on a still-live container, never a stale reference.
 	for child in container.get_children():
-		if child is StorageContainer:
+		if child is StorageContainer and is_instance_valid(child) and not child.is_queued_for_deletion():
 			var box: StorageContainer = child
 			for c_entry in data.entries:
 				if int(c_entry["type"]) == ChunkData.Kind.CONTAINER \

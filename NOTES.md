@@ -2220,4 +2220,9 @@ Greppable log of bugs/seams intentionally LEFT for a later pass, so they are not
   tag + only places STATIONs -- generalize to a kind/tag parameter when Phase 2 adds container placement (a
   2nd placeable kind).
 
+- DEFERRED (Epic 2 Phase 2, container contents / disk-save): save-while-playing that serializes a live
+  container's `_store` WITHOUT going through `_deactivate_chunk` would capture stale contents -- consistent with
+  how mineral integrity / enemy hp / drops already behave; the disk-save milestone must address all uniformly
+  (not a container-specific defect).
+
 Verified against: Godot 4.7.1 (2026-07-20)
