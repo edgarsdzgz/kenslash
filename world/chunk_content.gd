@@ -53,6 +53,11 @@ const BOULDER_SCENE: PackedScene = preload("res://world/boulder.tscn")
 ## its station_tag re-applied from the entry's state before add_child so it re-joins the "station" group and
 ## gates crafting again. Its `state` carries ONLY serializable params (station_tag as a plain String), no Node.
 const STATION_SCENE: PackedScene = preload("res://world/station.tscn")
+## The storage CONTAINER scene (Epic 2 Phase 2 Part 2.1). The SECOND ADDITION delta, spawned identically to a
+## STATION through the KIND-AGNOSTIC placeable contract (world/placeable.gd): _addition_scene() maps the entry's
+## Kind to this scene, spawn() instances it and calls apply_state() from the entry's state before add_child. Part
+## 2.1 round-trips an EMPTY container (identity only); its contents (Part 2.2) will ride the same state Dictionary.
+const CONTAINER_SCENE: PackedScene = preload("res://world/container.tscn")
 
 ## Hardness of a streamed mineral. The soft, mineable-with-the-pickaxe stone (matches
 ## world/rock.tscn's default): over = 6 - pickaxe.power 7 <= 0 -> Band A, so it chips.
@@ -147,17 +152,18 @@ static func spawn(entry: Dictionary) -> Node2D:
 			var b_state: Dictionary = entry["state"]
 			boulder.size = int(b_state.get("size", Boulder.Size.ROCK))
 			node = boulder
-		ChunkData.Kind.STATION:
-			# A placed crafting Station (Epic 2 Part 1.2 ADDITION delta): set its station_tag from the
-			# entry's state BEFORE the caller add_child()s it, so station.gd._ready() joins the "station"
-			# group already carrying the tag (the same pre-add configure the MINERAL/BOULDER cases use). The
-			# tag is stored as a plain String for serializability; StringName() converts it back. A missing
-			# tag falls back to the scene default (&"forge"). Positioned at local_pos by the caller like
-			# every other Kind, so a reloaded station lands at the exact world position it was placed.
-			var station: Station = STATION_SCENE.instantiate() as Station
-			var s_state: Dictionary = entry["state"]
-			station.station_tag = StringName(s_state.get("station_tag", "forge"))
-			node = station
+		ChunkData.Kind.STATION, ChunkData.Kind.CONTAINER:
+			# A placed ADDITION delta (Epic 2 -- Station or storage Container), re-created KIND-AGNOSTICALLY
+			# through the placeable contract (world/placeable.gd): map the Kind to its scene, instance it, and
+			# apply_state() the entry's recorded params BEFORE the caller add_child()s it -- so _ready() joins
+			# the right group already configured (a Station carrying its station_tag). The same pre-add configure
+			# the MINERAL/BOULDER cases use, generalized so ANY placement kind re-spawns with no new branch here.
+			# The `state` holds ONLY serializable params (a Station's tag as a plain String; an empty {} for a
+			# Part-2.1 container). Positioned at local_pos by the caller like every other Kind, so a reloaded
+			# placement lands at the exact world position it was placed.
+			var placeable: Placeable = _addition_scene(kind).instantiate() as Placeable
+			placeable.apply_state(entry["state"])
+			node = placeable
 		_:
 			node = Node2D.new()
 
@@ -232,12 +238,13 @@ static func capture(node: Node, entry: Dictionary) -> bool:
 			# there is NO durable delta to write back and it is never `gone` -- it respawns byte-identically
 			# from the deterministic baseline every reload. So capture is always a no-op here.
 			return false
-		ChunkData.Kind.STATION:
-			# A placed Station (Epic 2 Part 1.2 addition) carries NO durable per-node delta here: its params
-			# (station_tag) live on the entry the moment it is registered and never mutate, and it is never
-			# `gone` -- a station is not harvested/destroyed. The ChunkManager likewise SKIPS STATION entries
-			# in its paired capture loop (they persist as-is, freed with the container, re-spawned on reload),
-			# so this branch is defensive symmetry with the other permanent Kinds. Always a no-op.
+		ChunkData.Kind.STATION, ChunkData.Kind.CONTAINER:
+			# A placed ADDITION (Epic 2 -- Station or storage Container) carries NO durable per-node delta
+			# captured HERE: the ChunkManager SKIPS every addition kind in its paired loop (ChunkData.
+			# is_addition_kind), so this branch is never reached from deactivate -- it is defensive symmetry
+			# with the other permanent Kinds. A Station's params live on the entry from register_placement and
+			# never mutate; a Part-2.1 container is likewise identity-only. (Container CONTENTS write-back --
+			# serializing the store back into the entry on unload -- is Part 2.2, and will live in THIS branch.)
 			return false
 		_:
 			return false
@@ -260,5 +267,20 @@ static func drop_entry(drop: Drop) -> Dictionary:
 			"lifetime": drop.lifetime,
 		},
 	}
+
+
+## Map an ADDITION Kind (ChunkData.is_addition_kind) to the PackedScene spawn() instances for it -- the ONE
+## place the kind -> placeable-scene decision lives, so spawn() re-creates every addition through the shared
+## kind-agnostic path (instance + apply_state) with no per-kind branch. Append a case here the moment a new
+## placement Kind is added (alongside its ChunkData.ADDITION_KINDS entry). Returns null for a non-addition kind
+## (spawn only calls this from the STATION/CONTAINER arm, so that is unreachable there -- defensive).
+static func _addition_scene(kind: int) -> PackedScene:
+	match kind:
+		ChunkData.Kind.STATION:
+			return STATION_SCENE
+		ChunkData.Kind.CONTAINER:
+			return CONTAINER_SCENE
+		_:
+			return null
 
 # Verified against: Godot 4.7.1 (2026-07-20)

@@ -1,5 +1,5 @@
 class_name Station
-extends Node2D
+extends Placeable
 ## A crafting STATION (plan-epic1-parts.md Part 4.1; plan-core-loop.md Phase 4; design-crafting.md "Track B
 ## -- Building / crafting"). A recipe that carries a non-empty `station_tag` (RecipeData) can only be crafted
 ## when a Station carrying that SAME tag is in range of the player; craft-anywhere recipes (station_tag == "")
@@ -40,19 +40,10 @@ const DEFAULT_REACH: float = WorldScale.TILE * 2.0
 ## the station contribute nothing (skipped by tags_in_range); a real station always carries a meaningful tag.
 @export var station_tag: StringName = &"forge"
 
-## BUILD COST to place this station in the world (plan-epic2-parts.md Phase 1 Part 1.1) -- the item DEFINITIONS
-## a placement CONSUMES, PARALLEL to build_counts (build_items[i] is spent build_counts[i] at a time). This is
-## the recipe-like cost idiom RecipeData uses for craft inputs (input_items/input_counts), mirrored here on the
-## PLACEABLE so the cost is authored WORLD data on the scene (station.tscn: stone x3 + stick x2).
-## components/builder.gd reads + deducts these to place the station; the Station itself never touches an
-## inventory (decoupled, exactly like the craft gate above stays decoupled from recipes). Empty = a free
-## placement. Independent of the station_tag gate -- a PLACED station gates crafting through station_tag
+## BUILD COST (build_items / build_counts) is inherited from world/placeable.gd -- the shared recipe-like cost
+## every placeable authors on its scene (station.tscn: stone x3 + stick x2). components/builder.gd reads + deducts
+## it kind-agnostically. Independent of the station_tag gate -- a PLACED station gates crafting through station_tag
 ## exactly as a scene-authored one does.
-@export var build_items: Array[ItemData] = []
-## How many of each build_items[i] one placement consumes, PARALLEL to build_items (authored the same length).
-## Aggregated (duplicate item rows summed) by components/builder.gd before its atomic precheck + consume, the
-## same summing Crafting does over a recipe's input rows.
-@export var build_counts: Array[int] = []
 
 
 func _ready() -> void:
@@ -60,6 +51,23 @@ func _ready() -> void:
 	# 'f'-interaction scan. Pure membership on a plain Node2D (no Area2D), so this adds no collision node to the
 	# streaming node-count baseline.
 	add_to_group(GROUP)
+
+
+## The persistence contract (world/placeable.gd): a Station persists as a Kind.STATION ADDITION delta whose only
+## param is its station_tag. capture_state() flattens the tag to a plain String (serializable -- StringName does
+## not survive store_var/JSON cleanly); apply_state() converts it back on reload, BEFORE _ready joins the group, so
+## a reloaded station re-gates crafting identically. Byte-identical to the tag round-trip ChunkContent did inline
+## before Part 2.1 generalized the path (a missing tag falls back to the scene default &"forge").
+func placement_kind() -> int:
+	return ChunkData.Kind.STATION
+
+
+func capture_state() -> Dictionary:
+	return {"station_tag": String(station_tag)}
+
+
+func apply_state(state: Dictionary) -> void:
+	station_tag = StringName(state.get("station_tag", "forge"))
 
 
 ## Collect the station tags in range of `world_pos` -- every DISTINCT `station_tag` of a Station within `radius`

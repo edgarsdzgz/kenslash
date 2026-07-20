@@ -104,7 +104,7 @@ func _leg_manager(ctx: TestContext) -> void:
 	live_station.station_tag = TAG_A
 	container.add_child(live_station)
 	live_station.global_position = world_pos
-	mgr.register_placement(world_pos, {"station_tag": String(TAG_A)})
+	mgr.register_placement(world_pos, ChunkData.Kind.STATION, {"station_tag": String(TAG_A)})
 	await ctx.tree.physics_frame
 
 	var placed_now: Array = _stations_in(container)
@@ -267,7 +267,7 @@ func _leg_gone_coexist(ctx: TestContext) -> void:
 	live_station.station_tag = TAG_C
 	container.add_child(live_station)
 	live_station.global_position = world_pos
-	mgr.register_placement(world_pos, {"station_tag": String(TAG_C)})
+	mgr.register_placement(world_pos, ChunkData.Kind.STATION, {"station_tag": String(TAG_C)})
 	await ctx.tree.physics_frame
 
 	ctx.check(container != null and rocks_before >= 1 and _stations_in(container).size() == 1,
@@ -330,8 +330,8 @@ func _leg_two_stations(ctx: TestContext) -> void:
 
 	var pos1: Vector2 = WorldScale.chunk_origin(FOCUS_D) + PLACE_LOCAL_D1
 	var pos2: Vector2 = WorldScale.chunk_origin(FOCUS_D) + PLACE_LOCAL_D2
-	mgr.register_placement(pos1, {"station_tag": String(TAG_D1)})
-	mgr.register_placement(pos2, {"station_tag": String(TAG_D2)})
+	mgr.register_placement(pos1, ChunkData.Kind.STATION, {"station_tag": String(TAG_D1)})
+	mgr.register_placement(pos2, ChunkData.Kind.STATION, {"station_tag": String(TAG_D2)})
 	await ctx.tree.physics_frame
 
 	var stored: ChunkData = mgr.stored_data(FOCUS_D)
@@ -394,7 +394,7 @@ func _leg_negative_coord(ctx: TestContext) -> void:
 	await ctx.tree.physics_frame
 
 	var world_pos: Vector2 = WorldScale.chunk_origin(FOCUS_E) + PLACE_LOCAL_E
-	mgr.register_placement(world_pos, {"station_tag": String(TAG_E)})
+	mgr.register_placement(world_pos, ChunkData.Kind.STATION, {"station_tag": String(TAG_E)})
 	await ctx.tree.physics_frame
 	var stored: ChunkData = mgr.stored_data(FOCUS_E)
 	ctx.check(WorldScale.world_to_chunk(world_pos) == FOCUS_E and _station_entries(stored).size() == 1,
@@ -453,7 +453,7 @@ func _leg_multi_cycle(ctx: TestContext) -> void:
 	await ctx.tree.physics_frame
 
 	var world_pos: Vector2 = WorldScale.chunk_origin(FOCUS_F) + PLACE_LOCAL_F
-	mgr.register_placement(world_pos, {"station_tag": String(TAG_F)})
+	mgr.register_placement(world_pos, ChunkData.Kind.STATION, {"station_tag": String(TAG_F)})
 	await ctx.tree.physics_frame
 	ctx.check(_station_entries(mgr.stored_data(FOCUS_F)).size() == 1 and mgr.stored_data(FOCUS_F).dirty,
 		"FIX4 place: ONE STATION addition recorded on chunk " + str(FOCUS_F) + " (a dirty delta chunk)",

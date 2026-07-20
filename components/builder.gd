@@ -9,11 +9,13 @@ extends RefCounted
 ## orphan baselines and is directly testable with `Builder.new()` + plain component instances (no player/scene
 ## wiring needed).
 ##
-## STATELESS. Holds NO per-placement state -- the cost lives on the placeable (Station.build_items /
+## STATELESS. Holds NO per-placement state -- the cost lives on the placeable (world/placeable.gd build_items /
 ## build_counts, the parallel-array idiom RecipeData uses for craft inputs), the materials live on the
 ## Inventory, the world lives under the passed `parent` -- so ONE Builder instance serves any placement (or a
 ## test can `Builder.new()` per call). It only ORCHESTRATES: read the authored cost off the scene, verify +
-## consume it against the inventory, add the entity under the parent.
+## consume it against the inventory, add the entity under the parent. KIND-AGNOSTIC (Epic 2 Part 2.1): it types
+## the instance as the shared Placeable base, so it places ANY placeable (Station, storage Container, ...) via
+## the same path -- never `as Station`, no hardcoded kind.
 ##
 ## ATOMIC. place() verifies EVERY build item is present BEFORE it removes anything; on ANY shortfall it consumes
 ## NOTHING and returns null -- never a partial deduction. The precheck alone makes consumption atomic (a
@@ -35,11 +37,12 @@ extends RefCounted
 ## A pure predicate that MATCHES place()'s accept/refuse without committing, so a future build-mode UI can grey
 ## out an un-affordable placement through this. Reads the authored cost off a THROWAWAY instance of the scene
 ## (the cost is an @export on the placeable) that is never added to the tree -- so its _ready never runs, it
-## never joins the "station" group, and it is freed immediately. A null scene or inventory -> false.
-func can_place(station_scene: PackedScene, inventory: Inventory) -> bool:
-	if station_scene == null or inventory == null:
+## never joins its group, and it is freed immediately. A null scene or a scene whose root is not a Placeable
+## (or a null inventory) -> false.
+func can_place(scene: PackedScene, inventory: Inventory) -> bool:
+	if scene == null or inventory == null:
 		return false
-	var probe: Station = station_scene.instantiate() as Station
+	var probe: Placeable = scene.instantiate() as Placeable
 	if probe == null:
 		return false
 	var ok: bool = _has_cost(_aggregate_cost(probe), inventory)
@@ -60,32 +63,33 @@ func can_place(station_scene: PackedScene, inventory: Inventory) -> bool:
 ## Returns the live placed Station on success, else null with the inventory byte-identical to before (no
 ## partial consumption). Deterministic integer/membership work, no Time/OS/RNG. Decoupled -- takes `parent`,
 ## never reaches into a scene singleton.
-func place(station_scene: PackedScene, world_pos: Vector2, inventory: Inventory, parent: Node) -> Node:
-	if station_scene == null or inventory == null or parent == null:
+func place(scene: PackedScene, world_pos: Vector2, inventory: Inventory, parent: Node) -> Node:
+	if scene == null or inventory == null or parent == null:
 		return null
-	var station: Station = station_scene.instantiate() as Station
-	if station == null:
+	var placeable: Placeable = scene.instantiate() as Placeable
+	if placeable == null:
 		return null
 	# (2) ATOMIC PRECHECK -- aggregate duplicate rows, verify every distinct build item's total is present
 	# BEFORE removing any. A shortfall frees the never-added instance and consumes nothing.
-	var cost: Dictionary = _aggregate_cost(station)
+	var cost: Dictionary = _aggregate_cost(placeable)
 	if not _has_cost(cost, inventory):
-		station.free()
+		placeable.free()
 		return null
 	# (3) TRANSACTIONAL: snapshot, consume the exact per-item totals, then add + position the entity. add_child
-	# runs _ready synchronously for an in-tree parent, so the station joins the "station" group here.
+	# runs _ready synchronously for an in-tree parent, so the placeable joins its group (Station -> "station",
+	# Container -> "container") here.
 	var snap: Array = inventory.snapshot()
 	_consume_cost(cost, inventory)
-	parent.add_child(station)
-	station.global_position = world_pos
+	parent.add_child(placeable)
+	placeable.global_position = world_pos
 	# (4) Backstop the one post-consume misuse: a `parent` outside the tree leaves the entity un-entered (no
 	# _ready, no group join) -- not a real placement. Roll the cost back and abandon the node so a failed
 	# placement consumes NOTHING, preserving the atomic contract.
-	if not station.is_inside_tree():
+	if not placeable.is_inside_tree():
 		inventory.restore(snap)
-		station.free()
+		placeable.free()
 		return null
-	return station
+	return placeable
 
 
 ## Aggregate a placeable's parallel build rows (build_items[i] / build_counts[i]) into a per-item TOTAL:
@@ -93,13 +97,13 @@ func place(station_scene: PackedScene, world_pos: Vector2, inventory: Inventory,
 ## compares the SUM, the consume removes the SUM once per distinct item). A shorter counts array reads 0 for
 ## the missing tail; null items and non-positive counts are skipped (defensive). Mirrors
 ## Crafting._aggregate_inputs exactly. Pure -- builds a fresh Dictionary, changes nothing.
-func _aggregate_cost(station: Station) -> Dictionary:
+func _aggregate_cost(placeable: Placeable) -> Dictionary:
 	var cost: Dictionary = {}
-	for i in range(station.build_items.size()):
-		var item: ItemData = station.build_items[i]
+	for i in range(placeable.build_items.size()):
+		var item: ItemData = placeable.build_items[i]
 		if item == null:
 			continue
-		var need: int = station.build_counts[i] if i < station.build_counts.size() else 0
+		var need: int = placeable.build_counts[i] if i < placeable.build_counts.size() else 0
 		if need <= 0:
 			continue
 		cost[item] = int(cost.get(item, 0)) + need

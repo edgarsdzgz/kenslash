@@ -32,7 +32,28 @@ extends RefCounted
 ## placement is cheap serializable DATA when dormant (kind + local_pos + params: station_tag), re-spawned by
 ## ChunkContent.spawn() on reload -- baseline reproduced IDENTICALLY, PLUS the recorded additions. It touches
 ## ZERO generator rng (explicit delta, not a draw). Appended LAST -- existing values are NEVER renumbered.
-enum Kind { TREE, MINERAL, ENEMY, DROP, BUSH, PEBBLE, BOULDER, STATION }
+## CONTAINER (Epic 2 Phase 2 Part 2.1) is the SECOND ADDITION delta, the twin of STATION: a placed storage
+## Container (world/container.gd) recorded via ChunkManager.register_placement, re-spawned by ChunkContent.spawn()
+## on reload -- identical persistence to STATION, differing only in the entity it re-creates. It is an ADDITION
+## kind (see is_addition_kind): the deactivate paired-loop SKIPS it (permanent, never `gone`-flagged) exactly as
+## it skips STATION, and it touches ZERO generator rng. Appended LAST -- existing values are NEVER renumbered.
+enum Kind { TREE, MINERAL, ENEMY, DROP, BUSH, PEBBLE, BOULDER, STATION, CONTAINER }
+
+## The ADDITION kinds -- pure PLACEMENT deltas the player pushes into the store via ChunkManager.register_placement
+## (never emitted by ChunkGenerator, never drawn from its rng). They share ONE kind-agnostic path: spawn() re-creates
+## them from their recorded `state` via the placeable contract (world/placeable.gd apply_state), and the deactivate
+## paired-loop SKIPS them wholesale (they are permanent, never `gone`-flagged, and an addition registered while the
+## chunk was already active sits at an index BEYOND _content). DROP is a delta too but is NOT listed here: it has its
+## OWN rebuild-from-live-children path in ChunkManager, distinct from the placeable-contract spawn additions share.
+## Append a new placement Kind here the moment it is added, so the skip predicate covers it without a code change.
+const ADDITION_KINDS: Array[int] = [Kind.STATION, Kind.CONTAINER]
+
+
+## True iff `kind` is an ADDITION-delta placement kind (STATION / CONTAINER / future) -- the single predicate the
+## ChunkManager deactivate loop uses to SKIP additions (keep them as-is, never capture/gone-flag them), generalizing
+## the former STATION-specific branch so every placement kind is covered by construction. Static + pure.
+static func is_addition_kind(kind: int) -> bool:
+	return ADDITION_KINDS.has(kind)
 
 ## The concrete TYPE a Kind.ENEMY entry spawns as (encounter variety). Kept as ONE Kind.ENEMY (the
 ## census + hp-capture stay ENEMY-based); the specific roster type rides in the entry's `state` as a

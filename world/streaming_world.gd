@@ -22,8 +22,9 @@ extends Node2D
 @onready var _ground_mat: ShaderMaterial = ($GroundLayer/Ground as ColorRect).material as ShaderMaterial
 @onready var _camera: Camera2D = $Player/Camera2D
 ## The build path (Epic 2 Part 1.1/1.2). Stateless RefCounted -- one instance serves every placement, exactly
-## like the tests instantiate it. place_station() below drives it, then records the placement as a streaming
-## delta so it survives chunk unload/reload (Part 1.2). Kept off player.gd (it stays under its line cap).
+## like the tests instantiate it. place_placeable() below drives it (kind-agnostic; place_station() is a thin
+## shim), then records the placement as a streaming delta so it survives chunk unload/reload (Part 1.2). Kept
+## off player.gd (it stays under its line cap).
 var _builder: Builder = Builder.new()
 
 
@@ -41,30 +42,40 @@ func _ready() -> void:
 		(2 * _manager.load_radius + 1) * (2 * _manager.load_radius + 1)])
 
 
-## Place a crafting Station into the streamed world AND persist it as a chunk ADDITION delta (Epic 2 Part
-## 1.2 -- the placement FLOW that wires Builder to the streaming persistence). Two decoupled steps:
+## Place ANY placeable (Epic 2 -- a crafting Station, a storage Container, ...) into the streamed world AND
+## persist it as a chunk ADDITION delta (Part 1.2 flow, generalized KIND-AGNOSTIC in Part 2.1 -- resolving the
+## reviewer-flagged place_station hardcoding). Two decoupled steps:
 ##   (1) Builder.place() does the ATOMIC build-cost placement (Part 1.1): it verifies + consumes the cost from
-##       `inventory` and spawns the Station under the OWNING chunk's live container. Builder never knows about
+##       `inventory` and spawns the placeable under the OWNING chunk's live container. Builder never knows about
 ##       chunks -- it just takes the `parent` we hand it. Parenting under the container (not the world root) is
-##       what makes the placement leak-free: the station is freed WITH its chunk on unload, so there is no
-##       stray root child to double up when the chunk reloads.
-##   (2) On success, ChunkManager.register_placement() records the placement as a STATION delta on that same
-##       chunk, so when the chunk later unloads + reloads, spawn() re-creates the station from the delta at
-##       the same position + tag. The build-cost live node and the reloaded node are never both alive.
-## Returns the placed Station, or null if the owning chunk is not active (can only build into a live chunk)
-## or the build cost was not met (Builder refused -> nothing placed, nothing recorded -- atomic + no stray
-## delta). Deterministic: no Input/Time/OS/RNG -- a headless test calls this directly, same as Builder's test.
-func place_station(station_scene: PackedScene, world_pos: Vector2, inventory: Inventory) -> Node:
+##       what makes the placement leak-free: the entity is freed WITH its chunk on unload, so there is no stray
+##       root child to double up when the chunk reloads.
+##   (2) On success, ChunkManager.register_placement() records the placement on that same chunk, keyed by the
+##       ENTITY's own placement_kind() + capture_state() (the placeable contract, world/placeable.gd) -- NOT a
+##       hardcoded STATION kind/tag. So when the chunk later unloads + reloads, spawn() re-creates the SAME
+##       entity from the delta at the same position + params. The build-cost live node and the reloaded node
+##       are never both alive.
+## Returns the placed entity, or null if the owning chunk is not active (can only build into a live chunk) or
+## the build cost was not met (Builder refused -> nothing placed, nothing recorded -- atomic + no stray delta).
+## Deterministic: no Input/Time/OS/RNG -- a headless test calls this directly, same as Builder's test.
+func place_placeable(scene: PackedScene, world_pos: Vector2, inventory: Inventory) -> Node:
 	var coord: Vector2i = WorldScale.world_to_chunk(world_pos)
 	var container: Node2D = _manager.active_container(coord)
 	if container == null:
 		return null  # the target chunk is not streamed in -- nothing to parent the placement under
-	var placed: Node = _builder.place(station_scene, world_pos, inventory, container)
+	var placed: Node = _builder.place(scene, world_pos, inventory, container)
 	if placed == null:
 		return null  # build cost not met -- Builder consumed nothing; record no delta
-	var station: Station = placed as Station
-	_manager.register_placement(world_pos, {"station_tag": String(station.station_tag)})
+	var placeable: Placeable = placed as Placeable
+	_manager.register_placement(world_pos, placeable.placement_kind(), placeable.capture_state())
 	return placed
+
+
+## Thin back-compat shim: place a crafting Station specifically, forwarding to the kind-agnostic
+## place_placeable() above. Retained so existing callers/tests that place a Station by name keep working;
+## the generalized entry point is place_placeable() (any Placeable). Byte-identical behavior for a Station.
+func place_station(station_scene: PackedScene, world_pos: Vector2, inventory: Inventory) -> Node:
+	return place_placeable(station_scene, world_pos, inventory)
 
 
 ## Meadow ground world-anchoring feed (design-environment.md #1). Each frame, hand the ground

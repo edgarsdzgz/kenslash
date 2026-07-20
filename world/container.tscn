@@ -1,0 +1,17 @@
+[gd_scene load_steps=3 format=4]
+
+[ext_resource type="Script" path="res://world/container.gd" id="1_container"]
+[ext_resource type="Resource" path="res://data/wood.tres" id="2_wood"]
+
+[node name="Container" type="Node2D"]
+script = ExtResource("1_container")
+build_items = Array[ItemData]([ExtResource("2_wood")])
+build_counts = Array[int]([4])
+
+[node name="Body" type="Polygon2D" parent="."]
+color = Color(0.42, 0.3, 0.16, 1)
+polygon = PackedVector2Array(-16, -12, 16, -12, 16, 12, -16, 12)
+
+[node name="Lid" type="Polygon2D" parent="."]
+color = Color(0.52, 0.38, 0.22, 1)
+polygon = PackedVector2Array(-16, -12, 16, -12, 16, -4, -16, -4)

@@ -136,6 +136,9 @@ func _run() -> void:
 	# --- Placement persistence EPIC 2 Part 1.2: a placed Station survives chunk unload/reload as an ADDITION delta (self-contained, remote) ---
 	await TestPlacementPersist.new().run(ctx)
 
+	# --- Storage container EPIC 2 Part 2.1: a Container places for its cost (kind-agnostic path) + an empty container round-trips (self-contained, remote) ---
+	await TestContainer.new().run(ctx)
+
 	# --- Boulder terrain Environment #2 (self-contained: own holders/players/boulders + ChunkManager) ---
 	await TestBoulder.new().run(ctx)
 
