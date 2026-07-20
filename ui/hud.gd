@@ -66,6 +66,11 @@ var _stamina_ghost_value: float = 1.0
 ## so the two never overlap), it names the item in the newly-selected hotbar slot, held then
 ## faded out. Presentation only -- driven by the HotbarPanel (which owns the popup logic).
 @onready var _selection_label: Label = $SelectionLabel
+## Minimal craft menu (plan-epic1-parts.md Part 4.2): hosted here on the HUD/CanvasLayer (never the streamed
+## chunk path). The per-frame pass polls the player's interaction for an 'f'-near-a-station open request and
+## toggles this menu open/closed -- the HUD PULLS the request, the player never pushes into the UI. The menu
+## reads the player's sheet/inventory + runs Crafting; the HUD only opens/closes it.
+@onready var _craft_menu: CraftMenu = $CraftMenu
 
 
 ## Point the HUD at the live player: store the ref, subscribe to the health damage EVENT, bind the
@@ -103,6 +108,7 @@ func _refresh(delta: float) -> void:
 	_refresh_level()
 	_hotbar.refresh()
 	_refresh_prompt()
+	_refresh_craft_menu()
 
 
 ## Carried-weight readout (design-weight.md REVISION 1 "HUD"): "Wt <carried> / <capacity>" with
@@ -144,6 +150,23 @@ func _refresh_prompt() -> void:
 		return
 	_prompt_label.text = "[%s] %s" % [_action_key_text(), prompt]
 	_prompt_label.visible = true
+
+
+## Craft menu open/close driver (plan-epic1-parts.md Part 4.2): PULL the player's interaction open request each
+## frame and toggle the menu -- pressing 'f' next to a station opens the menu, pressing it again (still by the
+## station) closes it. When opening, hand the menu the player's live CharacterSheet + Inventory and the station
+## tags that came with the request. The HUD reaches into the player-owned interaction (like it reads _stamina /
+## _active_durability); the player/interaction never reach into this UI. Guarded until the interaction exists.
+func _refresh_craft_menu() -> void:
+	if _player._interaction == null:
+		return
+	if not _player._interaction.craft_open_pending():
+		return
+	var tags: Array[StringName] = _player._interaction.consume_craft_open()
+	if _craft_menu.is_open:
+		_craft_menu.close()
+	else:
+		_craft_menu.open(_player.character(), _player.inventory, tags)
 
 
 ## Human-readable key currently bound to the_action_button: the first InputEventKey's keycode
@@ -244,6 +267,12 @@ func prompt_text() -> String:
 
 func tool_text() -> String:
 	return _tool_label.text
+
+
+## The hosted craft menu (plan-epic1-parts.md Part 4.2), for the headless test to assert the 'f'-near-a-station
+## open opened it + listed the right recipes. Read-only handle; the HUD owns opening/closing it.
+func craft_menu() -> CraftMenu:
+	return _craft_menu
 
 
 ## The level + XP readout currently SHOWN (e.g. "Lv 2  XP 120"), for the headless HUD/XP test.

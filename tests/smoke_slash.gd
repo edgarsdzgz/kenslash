@@ -124,6 +124,9 @@ func _run() -> void:
 	# --- Crafting station Part 4.1: Station node + in-range tag scan + station-gated craft (self-contained, remote) ---
 	await TestStation.new().run(ctx)
 
+	# --- Craft menu Part 4.2: minimal menu + 'f'-near-a-station open (menu API + interaction seam + HUD integration) ---
+	await TestCraftMenu.new().run(ctx)
+
 	# --- Boulder terrain Environment #2 (self-contained: own holders/players/boulders + ChunkManager) ---
 	await TestBoulder.new().run(ctx)
 

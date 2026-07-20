@@ -264,11 +264,11 @@ func _apply_equipped() -> void:
 	_equipment.apply_equipped()
 
 
-## E4 facade -> Interaction: HUD reads interaction_prompt(); interact() harvests the nearby one (test-callable + action-button path).
+## E4 facade -> Interaction: HUD reads interaction_prompt(); interact() runs the 'f' action -- open the craft menu next to a Station (priority) else harvest the nearby one (Part 4.2; test-callable + action-button path).
 func interaction_prompt() -> String:
 	return _interaction.current_prompt()
 func interact() -> void:
-	_interaction.try_interact(self)
+	_interaction.activate(self)
 
 
 ## Region facade (design-environment.md #3) -> the Region flag. A RegionTrigger "calls down" here on
