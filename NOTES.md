@@ -2201,3 +2201,15 @@ Binary: `...\Godot_v4.7.1-stable_win64_console.exe`, all against
    `res://main.tscn --quit-after 30` -- exit 0, **0 SCRIPT ERROR** each.
 
 Verified against: Godot 4.7.1 (2026-07-18)
+
+---
+
+# Deferred items / known seams (tracked, not yet fixed)
+
+Greppable log of bugs/seams intentionally LEFT for a later pass, so they are not lost. One line each.
+
+- DEFERRED (combat.gd, pre-existing): death during a THRUST or PUNCH swing leaks a SceneTreeTimer that resumes
+  after `_respawn_in_place` and bumps `_combo_index` (0->1) past the respawn reset -- pre-existing in combat.gd,
+  NOT a talent/Epic-1 regression, deferred.
+
+Verified against: Godot 4.7.1 (2026-07-19)

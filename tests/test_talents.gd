@@ -20,6 +20,11 @@ const MASTER: StringName = &"master_strike"     # cost 3, prereq [keen_edge], ME
 const FORAGER: StringName = &"forager"          # root, cost 1, HARVEST_YIELD +1
 const HEAVY: StringName = &"heavy_hitter"       # root, cost 2, MELEE_DAMAGE +2
 
+## FIX 3 -- the flagship recipe gated behind heavy_hitter + its inputs, for the recipe/talent DECOUPLING assertion.
+const FORGE_RECIPE: StringName = &"forge_iron_sword"
+const IRON_ORE: ItemData = preload("res://data/iron_ore.tres")
+const STICK_ITEM: ItemData = preload("res://data/stick.tres")
+
 ## Part 2.2b scene legs: a controlled player proves the perk SUMS reach real gameplay (a swing's atk, a
 ## harvest's drop count). Remote coord, clear of every other self-contained module (progression 52000,
 ## xp-award 60000; this sits past them). Own holders, freed per leg.
@@ -38,6 +43,8 @@ func run(ctx: TestContext) -> void:
 	_sheet_spend_and_respec_tests(ctx)
 	# 2-deep prereq chain (blade -> keen -> master) + transitive orphan-gate + multi-order respec (FIX 3).
 	_deep_chain_respec_tests(ctx)
+	# Recipe/talent DECOUPLING: respec of a recipe's prereq talent does NOT relock the learned recipe.
+	_recipe_survives_prereq_respec_test(ctx)
 	await _melee_damage_leg(ctx)
 	await _harvest_yield_leg(ctx)
 	# Equip-mid-swing corruption gate + mid-swing cancel + non-sword swing bonus (FIX 1/2).
@@ -293,6 +300,37 @@ func _deep_chain_respec_tests(ctx: TestContext) -> void:
 			and s2.respec_points == CharacterSheet.RESPEC_START - 1,
 		"an INDEPENDENT root (heavy_hitter) unlocks then respecs on its own -- refund 2 (3 -> 5), bonus 2 -> 0",
 		"independent-root heavy_hitter unlock/respec wrong (pts %d, bonus %d)" % [s2.progression.talent_points, s2.melee_damage_bonus()])
+
+
+## FIX 3 -- learn is a ONE-TIME gate: a later talent RESPEC of a recipe's prereq talent does NOT relock the
+## recipe. Unlock heavy_hitter (forge_iron_sword's prereq_talent), learn the recipe, then respec heavy_hitter
+## away and assert the recipe is STILL known AND STILL craftable. Talents own NO recipe state (the learned set
+## lives on KnownRecipes; craft() re-checks only known + station + materials, never the learn-time talent gate),
+## so a respec cannot touch recipe knowledge -- the two systems are decoupled. Pure CharacterSheet + a
+## Crafting.would_craft dry-run (a RefCounted needs no scene). Deterministic membership/integer work, no Time/RNG.
+func _recipe_survives_prereq_respec_test(ctx: TestContext) -> void:
+	var s: CharacterSheet = CharacterSheet.new()
+	s.progression.blueprint_points = 5
+	s.progression.talent_points = 5
+	s.progression.level = 3
+	s.unlock_talent(HEAVY)                             # forge_iron_sword's prereq talent
+	var learned: bool = s.learn_recipe(FORGE_RECIPE)   # the one-time gate is satisfied -> recipe known
+
+	# Respec heavy_hitter (an independent root leaf -- no unlocked talent depends on it) straight back, so the
+	# talent gate the recipe was learned behind is now GONE from the unlocked set.
+	var respecced: bool = s.respec(HEAVY)
+
+	# DECOUPLING: the recipe stays KNOWN (learn is permanent) AND stays CRAFTABLE (would_craft dry-run with the
+	# mats + a forge tag) even though its prereq talent was un-picked -- talent respec never relocks recipe knowledge.
+	var craft: Crafting = Crafting.new()
+	var inv: Inventory = Inventory.new()
+	inv.add_item(IRON_ORE, 3)
+	inv.add_item(STICK_ITEM, 1)
+	var still_craftable: bool = craft.would_craft(FORGE_RECIPE, s, inv, [&"forge"] as Array[StringName])
+	ctx.check(learned and respecced and not s.talents.is_unlocked(HEAVY)
+			and s.known_recipes.is_known(FORGE_RECIPE) and still_craftable,
+		"RESPEC of a recipe's prereq talent does NOT relock the recipe: heavy_hitter respecced away, yet forge_iron_sword stays KNOWN + CRAFTABLE (learn is a one-time gate, decoupled from talent state)",
+		"a talent respec relocked/blocked a learned recipe (learned=%s, respecced=%s, heavy_unlocked=%s, known=%s, craftable=%s)" % [str(learned), str(respecced), str(s.talents.is_unlocked(HEAVY)), str(s.known_recipes.is_known(FORGE_RECIPE)), str(still_craftable)])
 
 
 ## Part 2.2b MELEE_DAMAGE -- a controlled player's swing deals measurably MORE atk after a MELEE talent is

@@ -173,7 +173,7 @@ func _run() -> void:
 	await TestCoreLoop.new().run(ctx)
 
 	if ctx.all_pass:
-		print("[PASS] smoke_slash: combat + combo + death + bodies + input seam + durability + streaming + playable + hud + encumbrance + harvest + pickup + lifetime + drop-persist + forage + pebble + controls + elevation + boulder + tank + swordsman + charger + spitter -- all passed")
+		print("[PASS] smoke_slash: combat + combo + death + bodies + input seam + durability + streaming + playable + hud + encumbrance + harvest + pickup + lifetime + drop-persist + forage + pebble + controls + elevation + boulder + tank + swordsman + charger + spitter + progression + talents + recipes + crafting + station + craft-menu + core-loop -- all passed")
 		quit(0)
 	else:
 		_fail("one or more assertions failed")

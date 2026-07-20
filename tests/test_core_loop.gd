@@ -179,8 +179,20 @@ func _mine_ore_into_inventory(ctx: TestContext, holder: Node2D, player: Player) 
 	# test_harvest) so the rock mines OUT to its full 3-ore yield.
 	var pick: Hitbox = _pickaxe_hitbox(holder)
 	await ctx.tree.physics_frame
+	# The FIRST real strike must be LOAD-BEARING (mirrors test_gated_weapon's real-strike leg): capture the
+	# pick's durability, land ONE real pickaxe strike through the ore's Hurtbox, and assert it AFFECTED the ore
+	# -- a drop yielded AND the pick WORE -- BEFORE the deterministic wear-loop top-up. Without this the mine
+	# step is insensitive to the real strike: the collected==3 total below is reached whether the strike lands
+	# (1 drop + a 2-drop wear loop) or whiffs (0 drops + a 3-drop wear loop), so a pickaxe->Band-C regression
+	# would pass here silently. This assertion makes such a regression FAIL the capstone, not just Part 5.1.
+	var pick_dura: DurabilityComponent = pick.durability
+	var pick_dura_before: int = pick_dura.current_durability
 	ore_hurt._on_area_entered(pick)
 	await ctx.tree.physics_frame
+	await ctx.tree.physics_frame   # settle the deferred drop add_child of the first real chip
+	ctx.check(_ore_drops(ore_holder).size() == 1 and pick_dura.current_durability < pick_dura_before,
+		"the FIRST REAL pickaxe strike AFFECTED the ore: 1 Iron Ore yielded + the pick WORE (%d -> %d) -- a pickaxe->Band-C whiff (0 drops, no wear) fails HERE, not just in Part 5.1" % [pick_dura_before, pick_dura.current_durability],
+		"the first real pickaxe strike did not affect the ore (drops %d, pick %d -> %d)" % [_ore_drops(ore_holder).size(), pick_dura_before, pick_dura.current_durability])
 	while is_instance_valid(ore_mat) and ore_mat.current_durability > 0:
 		ore_mat.wear(2)
 		await ctx.tree.physics_frame
@@ -314,6 +326,16 @@ func _pickaxe_hitbox(holder: Node2D) -> Hitbox:
 	pick.add_child(pick_dura)
 	holder.add_child(pick)
 	return pick
+
+
+## The live Iron Ore Drop instances directly under a holder (empty if none). Mirrors tests/test_gated_weapon.gd's
+## _ore_drops -- used by the mine step to assert the FIRST real pickaxe strike yielded a drop.
+func _ore_drops(parent: Node) -> Array:
+	var out: Array = []
+	for child in parent.get_children():
+		if child is Drop and (child as Drop).item == IRON_ORE:
+			out.append(child)
+	return out
 
 
 ## The first slot index holding `item`, or -1 if none (mirrors tests/test_gated_weapon.gd).

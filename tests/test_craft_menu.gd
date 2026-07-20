@@ -25,14 +25,25 @@ const BUSH_SCENE: PackedScene = preload("res://world/bush.tscn")
 const SPIN: StringName = &"spin_cord"          # fiber x3 -> cord x1, craft-anywhere
 const MASTER: StringName = &"master_cordage"   # fiber x5 -> cord x3, station_tag &"forge"
 
+## FLAGSHIP recipe (the triple-gated iron sword) + its inputs/output, exercised THROUGH the real menu UI.
+const FORGE: StringName = &"forge_iron_sword"  # iron_ore x3 + stick x1 -> iron_sword, gated by heavy_hitter + level 3 + &"forge"
+const HEAVY: StringName = &"heavy_hitter"      # the recipe's prereq talent (cost 2)
+const IRON_ORE: ItemData = preload("res://data/iron_ore.tres")
+const IRON_SWORD: ToolData = preload("res://data/iron_sword.tres")
+const STICK_ITEM: ItemData = preload("res://data/stick.tres")
+
 ## Remote region clear of test_station (-90000, 90000), forage (-30000), etc. -- so no stray station/bush from
 ## another module wanders into these radius scans, and this module's forge never reaches its own bush player.
 const HOME: Vector2 = Vector2(120000.0, -120000.0)
+## Distinct remote region for the flagship-forge leg (clear of HOME + every other module) so its own forge
+## Station never wanders into another leg's tag scan and vice-versa.
+const FLAGSHIP: Vector2 = Vector2(200000.0, -200000.0)
 
 
 func run(ctx: TestContext) -> void:
 	print("[craft_menu] --- Part 4.2 minimal craft menu + 'f'-near-a-station open, end to end ---")
 	await _menu_api(ctx)
+	await _flagship_forge(ctx)
 	await _interaction_seam(ctx)
 	await _integration(ctx)
 	await _regressions_pure(ctx)
@@ -105,6 +116,69 @@ func _menu_api(ctx: TestContext) -> void:
 	ctx.check(not menu.is_open,
 		"close() marks the menu not open",
 		"close() did not clear is_open")
+
+	holder.queue_free()
+	await ctx.tree.physics_frame
+
+
+## FLAGSHIP through the REAL menu UI: the triple-gated iron sword is only ever crafted via Crafting.craft directly
+## (test_gated_weapon / the capstone) -- never through the CraftMenu the player actually operates. This leg closes
+## that: a sheet that LEARNED forge_iron_sword through its real gates (unlock heavy_hitter, reach level 3, spend the
+## blueprint point) + an inventory holding iron_ore x3 + stick x1, opened on the real menu near a real forge Station.
+## Asserts is_craftable(forge) is FALSE with no forge and TRUE with the forge (real Station.tags_in_range scan), then
+## that craft_selected() THROUGH THE MENU consumes the inputs + produces the iron_sword. Pure menu API off
+## ui/craft_menu.tscn (no HUD needed), mirroring _menu_api's structural style.
+func _flagship_forge(ctx: TestContext) -> void:
+	var holder: Node2D = Node2D.new()
+	ctx.tree.root.add_child(holder)
+	var menu: CraftMenu = CRAFT_MENU_SCENE.instantiate() as CraftMenu
+	holder.add_child(menu)
+	await ctx.tree.physics_frame  # let _ready resolve the row container
+
+	# A sheet that LEARNED forge_iron_sword through the REAL triple gate (mirrors test_gated_weapon's learn leg):
+	# blueprint points + level 3 + the heavy_hitter talent unlocked, then learn_recipe spends the blueprint point.
+	var sheet: CharacterSheet = CharacterSheet.new()
+	sheet.progression.blueprint_points = 5
+	sheet.progression.talent_points = 5
+	sheet.progression.level = 3
+	var ok_talent: bool = sheet.unlock_talent(HEAVY)
+	var ok_learn: bool = sheet.learn_recipe(FORGE)
+	ctx.check(ok_talent and ok_learn and sheet.known_recipes.is_known(FORGE),
+		"flagship setup: forge_iron_sword LEARNED through its real gates (heavy_hitter unlocked + level 3 + blueprint point spent)",
+		"flagship setup failed to learn forge_iron_sword (talent=%s, learn=%s, known=%s)" % [str(ok_talent), str(ok_learn), str(sheet.known_recipes.is_known(FORGE))])
+
+	var inv: Inventory = Inventory.new()
+	inv.add_item(IRON_ORE, 3)
+	inv.add_item(STICK_ITEM, 1)
+
+	# A REAL forge Station at the flagship coords; its tags are collected by the same Station.tags_in_range scan
+	# the game uses -- so the menu is judged against a genuine world station, not a hand-passed tag literal.
+	var forge: Station = STATION_SCENE.instantiate() as Station
+	forge.station_tag = &"forge"
+	holder.add_child(forge)
+	forge.global_position = FLAGSHIP
+	await ctx.tree.physics_frame
+
+	# --- open with NO forge in range: the learned recipe is LISTED but NOT craftable (station gate blocks it) ---
+	menu.open(sheet, inv, [] as Array[StringName])
+	ctx.check(menu.listed_ids().has(FORGE) and not menu.is_craftable(FORGE),
+		"the learned forge_iron_sword is LISTED but NOT craftable through the menu with no forge in range (station gate)",
+		"flagship craftable flag wrong with no forge (listed=%s, craftable=%s)" % [str(menu.listed_ids().has(FORGE)), str(menu.is_craftable(FORGE))])
+
+	# --- re-open WITH the real forge Station in range (scan [forge]): NOW craftable through the menu ---
+	var forge_tags: Array[StringName] = Station.tags_in_range(FLAGSHIP, Station.DEFAULT_REACH)
+	menu.open(sheet, inv, forge_tags)
+	ctx.check(forge_tags == [&"forge"] and menu.is_craftable(FORGE),
+		"with a REAL forge Station in range (scan [forge]) the flagship forge_iron_sword is NOW craftable through the menu",
+		"flagship not craftable with the forge in range (tags=%s, craftable=%s)" % [str(forge_tags), str(menu.is_craftable(FORGE))])
+
+	# --- craft the flagship THROUGH the menu (select + craft_selected): ore x3 + stick x1 -> iron_sword ---
+	menu.select(FORGE)
+	var forged: bool = menu.craft_selected()
+	ctx.check(forged and menu.selected_id() == FORGE and inv.count_of(IRON_ORE) == 0
+			and inv.count_of(STICK_ITEM) == 0 and inv.count_of(IRON_SWORD) == 1,
+		"craft_selected() forges the iron sword THROUGH THE MENU the player operates: ore 3 -> 0, stick 1 -> 0, iron_sword 0 -> 1",
+		"flagship craft through the menu wrong (ok=%s, ore=%d, stick=%d, sword=%d)" % [str(forged), inv.count_of(IRON_ORE), inv.count_of(STICK_ITEM), inv.count_of(IRON_SWORD)])
 
 	holder.queue_free()
 	await ctx.tree.physics_frame
