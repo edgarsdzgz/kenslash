@@ -169,6 +169,9 @@ func _run() -> void:
 	# --- Spitter ranged kiter: REPOSITION/AIM/FIRE + the reusable Projectile (travel/hit/cull) ---
 	await TestSpitter.new().run(ctx)
 
+	# --- CAPSTONE core loop Part 5.2: END-TO-END fight/harvest -> level -> learn -> mine -> craft -> stronger weapon -> harder enemy viable (self-contained, remote) ---
+	await TestCoreLoop.new().run(ctx)
+
 	if ctx.all_pass:
 		print("[PASS] smoke_slash: combat + combo + death + bodies + input seam + durability + streaming + playable + hud + encumbrance + harvest + pickup + lifetime + drop-persist + forage + pebble + controls + elevation + boulder + tank + swordsman + charger + spitter -- all passed")
 		quit(0)
