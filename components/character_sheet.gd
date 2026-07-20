@@ -27,6 +27,14 @@ var progression: Progression = null
 ## delegating API below does not surface. The perk EFFECTS are summed off this set (melee/harvest bonuses).
 var talents: Talents = null
 
+## The character's Track B recipe KNOWLEDGE (components/known_recipes.gd): the learned-recipe set + the learn/
+## gate VALIDATION. Owned here (made in _init) alongside Progression + Talents -- recipe knowledge is portable
+## CHARACTER data (design-multiplayer.md) and design-crafting.md's prestige loop re-locks EXACTLY this set, so it
+## belongs in the sheet, not on player.gd (which accrues no field/facade for it). Public so the HUD/tests reach
+## the raw catalog/known queries (is_known / recipe() / all_recipes) the learn_recipe chokepoint below does not
+## surface. Craft EXECUTION off the known set is Part 3.2; here it is only the learn model.
+var known_recipes: KnownRecipes = null
+
 ## --- TUNING (placeholders; exact allowance is for later balancing) --------------------------------
 ## RESPEC allowance (design-multiplayer.md Icarus talents): a SMALL, finite number of un-picks the character
 ## may perform. Each respec() spends one and refunds the talent's cost; when this hits 0 no further respec is
@@ -37,10 +45,11 @@ var respec_points: int = RESPEC_START
 
 ## Make the owned character systems. (A member var initializer cannot reliably reference construction of
 ## another component, so build here -- same pattern as Stamina seeding `current` in its _init.) Phase 3
-## the known-recipes join here too.
+## joins the known-recipes here alongside Progression + Talents.
 func _init() -> void:
 	progression = Progression.new()
 	talents = Talents.new()
+	known_recipes = KnownRecipes.new()
 
 
 ## Spend talent points to UNLOCK `id` (plan-epic1-parts.md Part 2.2b). The single spend chokepoint: gates on
@@ -54,6 +63,23 @@ func unlock_talent(id: StringName) -> bool:
 		return false
 	var cost: int = talents.unlock(id)
 	progression.talent_points -= cost
+	return true
+
+
+## Spend blueprint points to LEARN recipe `id` (plan-epic1-parts.md Part 3.1). The Track B learn chokepoint,
+## mirroring unlock_talent: it GATHERS the live facts KnownRecipes needs -- the available blueprint points
+## (Progression.blueprint_points), the unlocked-talent set (Talents.unlocked_ids(), for the prereq_talent gate),
+## and the current level (Progression.level, for the min_level gate) -- gates on KnownRecipes.can_learn(...), and
+## only on success does KnownRecipes.learn() report the cost that is then DEDUCTED from Progression here. So
+## KnownRecipes stays decoupled from Progression + Talents (it never touches either bank) while the blueprint-
+## point banking stays in Progression. Returns whether the recipe actually learned; a refused learn (unaffordable
+## / unmet talent gate / unmet level gate / already known / unknown id) deducts NOTHING and returns false.
+## Deterministic integer spend, no Time/OS/RNG. (Craft EXECUTION off the learned recipe is Part 3.2.)
+func learn_recipe(id: StringName) -> bool:
+	if not known_recipes.can_learn(id, progression.blueprint_points, talents.unlocked_ids(), progression.level):
+		return false
+	var cost: int = known_recipes.learn(id)
+	progression.blueprint_points -= cost
 	return true
 
 

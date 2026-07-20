@@ -115,6 +115,9 @@ func _run() -> void:
 	# --- Talents Track A: talent-tree unlock/prereq/spend validation (self-contained: pure instances) ---
 	await TestTalents.new().run(ctx)
 
+	# --- Recipes Track B: recipe learn model + blueprint-point/talent/level gates (self-contained: pure instances) ---
+	await TestRecipes.new().run(ctx)
+
 	# --- Boulder terrain Environment #2 (self-contained: own holders/players/boulders + ChunkManager) ---
 	await TestBoulder.new().run(ctx)
 

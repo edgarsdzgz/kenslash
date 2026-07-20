@@ -1,0 +1,18 @@
+[gd_resource type="Resource" script_class="RecipeData" load_steps=4 format=3]
+
+[ext_resource type="Script" path="res://components/recipe_data.gd" id="1_recipe"]
+[ext_resource type="Resource" path="res://data/wood.tres" id="2_wood"]
+[ext_resource type="Resource" path="res://data/stick.tres" id="3_stick"]
+
+[resource]
+script = ExtResource("1_recipe")
+id = &"bundle_sticks"
+display_name = "Bundle of Sticks"
+input_items = Array[ItemData]([ExtResource("2_wood")])
+input_counts = Array[int]([2])
+output_item = ExtResource("3_stick")
+output_count = 4
+blueprint_cost = 1
+prereq_talent = &""
+min_level = 0
+station_tag = &""

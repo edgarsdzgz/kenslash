@@ -1,0 +1,12 @@
+[gd_resource type="Resource" script_class="ItemData" load_steps=2 format=3]
+
+[ext_resource type="Script" path="res://components/item_data.gd" id="1_item"]
+
+[resource]
+script = ExtResource("1_item")
+display_name = "Cord"
+max_stack = 255
+glyph = "C"
+color = Color(0.7, 0.62, 0.4, 1)
+icon_shape = PackedVector2Array(-11, -3, 11, -3, 11, 3, -11, 3)
+weight = 30.0

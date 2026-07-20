@@ -1,0 +1,19 @@
+[gd_resource type="Resource" script_class="RecipeData" load_steps=5 format=3]
+
+[ext_resource type="Script" path="res://components/recipe_data.gd" id="1_recipe"]
+[ext_resource type="Resource" path="res://data/stone.tres" id="2_stone"]
+[ext_resource type="Resource" path="res://data/fiber.tres" id="3_fiber"]
+[ext_resource type="Resource" path="res://data/cord.tres" id="4_cord"]
+
+[resource]
+script = ExtResource("1_recipe")
+id = &"flint_kit"
+display_name = "Flint Kit"
+input_items = Array[ItemData]([ExtResource("2_stone"), ExtResource("3_fiber")])
+input_counts = Array[int]([2, 1])
+output_item = ExtResource("4_cord")
+output_count = 1
+blueprint_cost = 2
+prereq_talent = &""
+min_level = 0
+station_tag = &""
