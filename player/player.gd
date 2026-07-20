@@ -98,6 +98,7 @@ var _stamina: Stamina = null  ## Stamina pool (components/stamina.gd): sprint dr
 var _elevation: Elevation = null  ## Elevation foundation (components/elevation.gd): float z + body draw-offset + ground-shadow pin + depth key. RefCounted like the others, made in _ready.
 var _region: Region = null  ## Inside/outside region flag (components/region.gd): OUTSIDE default; a RegionTrigger flips it via set_region. RefCounted, made in _ready.
 var _character: CharacterSheet = null  ## The portable CHARACTER bundle (components/character_sheet.gd): OWNS the Progression (XP + level + the two point currencies), and later talents (P2.2b) + known-recipes (Phase 3). RefCounted, made in _ready. See design-multiplayer.md.
+var _build_mode: BuildMode = null  ## Epic 2 build-mode UX (components/build_mode.gd): toggle/select/ghost/confirm placement, node-free RefCounted like the others; made in _ready, driven each frame. Owns a ghost preview it lazily parents UNDER THE PLAYER (never the streamed chunk path); CONFIRM rides streaming_world.place_placeable so placements persist.
 ## Decaying knockback impulse, added on top of movement. Also carries the lunge.
 var _knockback: Vector2 = Vector2.ZERO
 ## Looping tween that blinks the avatar while invincible; null when not blinking.
@@ -250,6 +251,7 @@ func _ready() -> void:
 	# Progression (made in _init) + later talents (P2.2b)/known-recipes (Phase 3), so player.gd stops
 	# accreting a field+facade per character system (CONVENTIONS.md Rule 1). RefCounted like the others.
 	_character = CharacterSheet.new()
+	_build_mode = BuildMode.new()  # Epic 2 build-mode UX: node-free RefCounted like the components above; reads the InputMap DIRECTLY as a LOCAL build action (like _interaction), lazily owns a ghost preview under the player, and CONFIRM rides streaming_world.place_placeable so placements are cost-deducted + persisted.
 
 
 ## Equip a tool (facade -> Equipment.equip_tool). Directly callable -- a headless test
@@ -301,6 +303,7 @@ func _physics_process(delta: float) -> void:
 	# state a peer/AI would replay -- see components/pickup.gd. The player calls down each frame.
 	_pickup.process(self, delta)
 	_interaction.process(self)  # E4: nearby scan + 'f'-harvest, node-free like the pickup pass (InputMap, not FrameInput).
+	_build_mode.process(self)  # Epic 2 build-mode UX: toggle/select/ghost/confirm, node-free driver reading the InputMap DIRECTLY (a LOCAL build action, not FrameInput), like the interaction pass above.
 
 
 ## Mouse-wheel hotbar selection is an equipment concern; forward the event verbatim to

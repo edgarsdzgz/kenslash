@@ -46,8 +46,12 @@ find . -name "*.gd" -not -path "./.godot/*" | xargs wc -l | sort -rn | head
 Any production `.gd` over 500 (or a test over ~600) is a refactor flag.
 
 **Current standing (audited 2026-07-19):**
-- `player/player.gd` -- **494 (2026-07-19): in the 400-500 WARNING band, under the 500 hard
-  cap.** Still single-responsibility -- a player controller plus thin component facades -- so
+- `player/player.gd` -- **497 (2026-07-20): in the 400-500 WARNING band, under the 500 hard
+  cap.** The Epic 2 build-mode slice (2026-07-20) added only 3 lines -- a `_build_mode` field, its
+  `_ready` creation, and one `_build_mode.process(self)` hook -- with ALL build logic in
+  components/build_mode.gd (a node-free RefCounted), exactly the "extract the new subsystem, keep
+  player.gd wiring minimal" discipline this rule prescribes. Still single-responsibility -- a player
+  controller plus thin component facades -- so
   it stays a documented, justified occupant of the band rather than a split flag; keep the
   next subsystem out (extract it into its own component, as E1a did) rather than growing this
   file past 500. History: E1a (2026-07-18) extracted the equipment subsystem

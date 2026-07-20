@@ -2212,13 +2212,16 @@ Greppable log of bugs/seams intentionally LEFT for a later pass, so they are not
   after `_respawn_in_place` and bumps `_combo_index` (0->1) past the respawn reset -- pre-existing in combat.gd,
   NOT a talent/Epic-1 regression, deferred.
 
-- DEFERRED (Epic 2 Part 1.2, streaming_world.gd/build UX): build-mode / ghost / key-bind placement UX is
-  DEFERRED -- `place_station` is reachable only via direct call/tests this epic (Epic 2 plan Open-confirmation
-  #2, minimal-then-polish); no in-game build mode, ghost preview, or key binding wires it up yet.
+- RESOLVED (Epic 2 build-mode slice, 2026-07-20): build-mode / ghost / key-bind placement UX is now LIVE --
+  components/build_mode.gd (a node-free RefCounted on the player, InputMap-driven like interaction.gd) adds a
+  `b` toggle, a `[`/`]` selection across the 3 placeable kinds, a ghost preview that tracks a deterministic
+  grid-snapped target + tints by affordability, and an Enter CONFIRM that rides streaming_world.place_placeable
+  (cost deducted + persisted). See the build-log entry below; asserted by tests/test_build_mode.gd.
 
-- DEFERRED (Epic 2 Part 1.2, streaming_world.gd `place_station`): `place_station` hardcodes the scene's forge
-  tag + only places STATIONs -- generalize to a kind/tag parameter when Phase 2 adds container placement (a
-  2nd placeable kind).
+- RESOLVED (Epic 2, place_station kind/tag): NO station-only assumption remained to remove -- Part 2.1/4.1 had
+  already generalized the path (place_placeable reads placement_kind()/capture_state(); ChunkData.ADDITION_KINDS =
+  [STATION, CONTAINER, ADDON]; ChunkContent.spawn maps all three). The build-mode slice CONFIRMED this by placing
+  all 3 kinds through the ONE place_placeable path; `place_station` remains only as a thin back-compat shim.
 
 - DEFERRED (Epic 2 Phase 2, container contents / disk-save): save-while-playing that serializes a live
   container's `_store` WITHOUT going through `_deactivate_chunk` would capture stale contents -- consistent with
@@ -2243,10 +2246,79 @@ Greppable log of bugs/seams intentionally LEFT for a later pass, so they are not
   static group_within_radius(group,pos,radius) helper at first Epic 3 cleanup; keep tags_in_range and
   levels_in_range separate (level() runs a 2nd scan, too costly for the per-frame presence prompt).
 
-- DEFERRED (Epic 2 seal): BUILD-MODE UX LOOSE END: placement (station/container/add-on) is reachable only via
-  Builder.place/streaming_world.place_placeable/tests -- there is NO in-game build mode / ghost / key-bind, so
-  Epic 2's 'build a base' loop is headless-only and not yet operable by a human. Systems are real+persistent
-  (within ROADMAP scope) but a player-facing build UX slice is needed (schedule pre-Epic-3 or Epic 9); it must
-  generalize place_station to a kind/tag param across the 3 placeable kinds.
+- RESOLVED (Epic 2 build-mode slice, 2026-07-20): the BUILD-MODE UX LOOSE END is closed -- placement is now
+  operable by a human via components/build_mode.gd (toggle/select/ghost/confirm), and all 3 placeable kinds
+  place through the ONE kind-agnostic place_placeable path. See the build-log entry below.
+
+Verified against: Godot 4.7.1 (2026-07-20)
+
+---
+
+# Sword Slash -- Epic 2 Build-Mode UX Build Log (the player-facing placement surface)
+
+Turned Epic 2's headless-only placement (Builder.place / streaming_world.place_placeable / tests) into an
+OPERABLE in-game build loop: toggle build mode, cycle a selection across the three placeables, preview a ghost,
+and confirm-to-place. Still code-first, no editor GUI, statically-typed GDScript. Persistence/placement LOGIC is
+UNCHANGED -- this slice only DRIVES the existing kind-agnostic path.
+
+## What changed
+
+- **components/build_mode.gd** (NEW, ~215 lines) -- `class_name BuildMode extends RefCounted`, the build-mode
+  controller. Node-free like interaction.gd/pickup.gd (invisible to the streaming node-count baseline); the player
+  "calls down" `process(self)` each physics frame. Owns: an ON/OFF toggle; a selection index over a fixed
+  `SCENES` array (station/container/station_addon) cycled with wrap; a GHOST (a Polygon2D it creates LAZILY on the
+  first enable and parents UNDER THE PLAYER -- never the streamed chunk path -- so a player who never builds adds
+  no node and every existing test is undisturbed); an affordability tint (green/red) + `affordable()` forwarding
+  to Builder.can_place; and `confirm()`, which -- if affordable -- calls `player.get_parent().place_placeable(...)`
+  so the placement is cost-deducted + persisted. Reads the InputMap DIRECTLY (a LOCAL build action, NOT FrameInput,
+  same rationale as interaction.gd). `ghost_world_pos()` is the single deterministic source of truth (player +
+  facing, snapped to the tile grid) shared by the ghost, confirm, and the test. Public seam methods
+  (set_enabled/cycle/confirm + queries) let the headless test drive the exact routing the keys map onto.
+- **player/player.gd** -- +3 lines (494 -> 497, still under the 500 cap): a `_build_mode` field, its `_ready`
+  creation, and one `_build_mode.process(self)` hook in `_physics_process` (mirroring the interaction pass). All
+  logic lives in the component; the player only wires it.
+- **ui/hud.gd / ui/hud.tscn** -- a hidden `BuildLabel` + `_refresh_build_mode()` that, while build mode is on,
+  shows "Build: <name>  <cost>  -- affordable/cannot afford" by reading `_player._build_mode` each frame (the same
+  read-only "HUD reads player" pattern the craft/container drivers use; the player never reaches into the HUD).
+- **project.godot** -- four new InputMap actions: `build_toggle` (B), `build_prev` (`[`), `build_next` (`]`),
+  `build_confirm` (Enter). Distinct keys so build mode never collides with the `f` interaction or the attack click.
+- **tests/test_build_mode.gd** (NEW) + registered in tests/smoke_slash.gd -- 9 assertions across two self-contained
+  remote legs (below).
+
+## Kind-agnostic: all 3 kinds, ONE path
+
+The deferred "generalize place_station to a kind/tag param" turned out to need NO code removal: Part 2.1/4.1 had
+already made the path kind-agnostic (place_placeable reads the instance's placement_kind()/capture_state();
+ChunkData.ADDITION_KINDS = [STATION, CONTAINER, ADDON]; ChunkContent.spawn maps all three). Build mode simply picks
+`SCENES[index]` and hands it to place_placeable -- so delivering build mode inherently proves "all 3 kinds place
+through one path" (the test confirms a Station, a Container, and an Add-on all place + persist via the same call).
+
+## Verification (winning commands)
+
+Binary: `...\Godot_v4.7.1-stable_win64_console.exe`, `--path R:\Godot_Knowledge\projects\01-sword-slash`.
+
+**Import -- exit 0, no Parse Error.** (New `class_name BuildMode`/`TestBuildMode` registered.)
+
+**Headless smoke test (`-s res://tests/smoke_slash.gd`) -- exit 0, 666 [PASS] / 0 [FAIL], deterministic across
+two back-to-back runs (baseline was 657; +9 new build-mode assertions).** The nine:
+```
+[PASS] build mode TOGGLES: off by default (no ghost), then ON creates + shows the ghost preview
+[PASS] selection CYCLES through all 3 kinds (Station -> Container -> Add-on) and WRAPS both ways
+[PASS] ghost TRACKS the deterministic target (2 tiles in front, snapped to grid) as the player moves, and HIDES when off
+[PASS] affordable() EQUALS Builder.can_place: TRUE for the payable Station, FALSE for the wood-less Container
+[PASS] HUD build readout shows the selection + cost + affordability ("Build: Station  Stone x3 + Stick x2  -- affordable")
+[PASS] CONFIRM (affordable) places a STATION through place_placeable: in "station" group, stone 3->0 stick 2->0, ONE STATION delta
+[PASS] CONFIRM (affordable) places a CONTAINER through the SAME path: in "container" group, wood 6->2, ONE CONTAINER delta
+[PASS] CONFIRM (affordable) places an ADD-ON through the SAME path: in "station_addon" group, wood 2->0, ONE ADDON delta
+[PASS] CONFIRM (UNaffordable, wood 0) is a NO-OP: places nothing, consumes nothing, records no delta -- build mode stays ON
+```
+
+## How to PLAY it (build mode)
+
+WASD/arrows move, Space/J attack. Press **B** to enter build mode: a translucent ghost appears two tiles ahead in
+your facing (snapped to the grid), green if you can afford the selected placeable, red if not. Press **`[`/`]`** to
+cycle Station -> Storage Container -> Station Add-on (the HUD names it + its cost + whether you can afford it). Face
+where you want it and press **Enter** to place -- the cost is deducted and the placement persists with the chunk.
+Build mode stays on for repeated placing; press **B** again to leave. Re-run `--import` once if you change files.
 
 Verified against: Godot 4.7.1 (2026-07-20)

@@ -62,6 +62,11 @@ var _stamina_ghost_value: float = 1.0
 ## the player stands on an interactable (a bush), reading player.interaction_prompt() each frame;
 ## hidden when nothing is in reach. Presentation only -- the interaction lives in player.gd.
 @onready var _prompt_label: Label = $PromptLabel
+## Build-mode readout (Epic 2 build-mode UX): shown when the player is IN build mode, above the interaction prompt.
+## Names the selected placeable + its build cost + affordable/not, reading player._build_mode each frame (the same
+## read-only "HUD reads player" pattern as the craft/container drivers -- the player/build mode never reach into the
+## UI). Hidden whenever build mode is off. Presentation only.
+@onready var _build_label: Label = $BuildLabel
 ## Item-name selection popup (Change 2): shown just ABOVE the interaction prompt (a bit higher y
 ## so the two never overlap), it names the item in the newly-selected hotbar slot, held then
 ## faded out. Presentation only -- driven by the HotbarPanel (which owns the popup logic).
@@ -113,6 +118,7 @@ func _refresh(delta: float) -> void:
 	_refresh_level()
 	_hotbar.refresh()
 	_refresh_prompt()
+	_refresh_build_mode()
 	_refresh_craft_menu()
 	_refresh_container_panel()
 
@@ -156,6 +162,28 @@ func _refresh_prompt() -> void:
 		return
 	_prompt_label.text = "[%s] %s" % [_action_key_text(), prompt]
 	_prompt_label.visible = true
+
+
+## Build-mode readout (Epic 2 build-mode UX): when the player is in build mode, show the selected placeable's name,
+## its build cost, and whether it is affordable RIGHT NOW ("Build: Station  Stone x3 + Stick x2  -- affordable");
+## otherwise hide the label. Reads the player-owned BuildMode (like _refresh_craft_menu reads _player._interaction) --
+## the same read-only "HUD reads player" pattern; the player/build mode never reach into this UI. Guarded until the
+## build mode exists (the player may still be mid-_ready on the first frame).
+func _refresh_build_mode() -> void:
+	var bm: BuildMode = _player._build_mode
+	if bm == null or not bm.enabled():
+		_build_label.text = ""
+		_build_label.visible = false
+		return
+	var afford: String = "affordable" if bm.affordable(_player) else "cannot afford"
+	_build_label.text = "Build: %s  %s  -- %s" % [bm.selected_name(), bm.cost_text(), afford]
+	_build_label.visible = true
+
+
+## The build-mode readout currently SHOWN (e.g. "Build: Station  Stone x3 + Stick x2  -- affordable"), or "" when the
+## label is hidden (build mode off). For the headless build-mode test to assert the HUD reflects the selection/cost.
+func build_text() -> String:
+	return _build_label.text if _build_label.visible else ""
 
 
 ## Craft menu open/close driver (plan-epic1-parts.md Part 4.2): the HUD MANAGES the open menu each frame so it can

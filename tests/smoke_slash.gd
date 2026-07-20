@@ -148,6 +148,9 @@ func _run() -> void:
 	# --- Station leveling EPIC 2 Part 4.1: add-on placeable raises a station's level (capped), rides the kind-agnostic delta path + persists (self-contained, remote) ---
 	await TestStationLeveling.new().run(ctx)
 
+	# --- Build-mode UX EPIC 2: toggle + select 3 kinds + ghost tracking + affordability + CONFIRM places all 3 through place_placeable (cost deducted + persisted), unaffordable no-op, HUD readout (self-contained, remote) ---
+	await TestBuildMode.new().run(ctx)
+
 	# --- Boulder terrain Environment #2 (self-contained: own holders/players/boulders + ChunkManager) ---
 	await TestBoulder.new().run(ctx)
 
