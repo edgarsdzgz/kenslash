@@ -203,6 +203,30 @@ func add_tool(tool: ToolData) -> bool:
 	return add_item(tool, 1) == 0
 
 
+## Capture a VALUE snapshot of every slot (item + count) for a transactional rollback.
+## Each entry is null (empty slot) or a two-element [ItemData, int] pair -- the count is
+## copied BY VALUE, so later in-place stack mutation (add_item/remove_item change an
+## ItemStack.count in place) can never corrupt the captured state. Pairs with restore();
+## crafting.gd takes a snapshot before consuming inputs so a craft whose output does not
+## fit can roll back to a byte-identical inventory (consuming NOTHING, producing NOTHING).
+func snapshot() -> Array:
+	var snap: Array = []
+	for i in range(slots.size()):
+		var stack: ItemStack = slots[i]
+		snap.append([stack.item, stack.count] if stack != null else null)
+	return snap
+
+
+## Restore slots from a snapshot() capture -- rebuilding a FRESH ItemStack per non-empty
+## entry so the restored stacks never alias any mutated original. The exact inverse of
+## snapshot(): after restore(snap) the inventory is byte-identical to when snap was taken.
+func restore(snap: Array) -> void:
+	slots.resize(snap.size())
+	for i in range(snap.size()):
+		var entry: Variant = snap[i]
+		slots[i] = ItemStack.new(entry[0], entry[1]) if entry != null else null
+
+
 ## Total carried weight (design-weight.md "Carried weight"): the sum over ALL slots -- the
 ## hotbar window AND the background slots -- of `item.weight * count`. Weight is about what you
 ## HAUL, not what is equipped, so every stack counts. Empty slots contribute nothing (guarded).
