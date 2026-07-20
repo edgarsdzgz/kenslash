@@ -20,11 +20,20 @@ deterministic variety), streamed deterministic world (chunks: trees/rocks/bushes
 inventory/hotbar/items/weight/durability, harvest/pickup/drops, stamina/dodge/sprint/encumbrance, HUD,
 environment (meadow ground, boulder terrain, elevation + inside/outside foundation). Suite 343 green.
 
-## EPIC 1 -- Core Progression Loop (SP)   [NEXT]  -> plan-core-loop.md
+## EPIC 1 -- Core Progression Loop (SP)   [COMPLETE 2026-07-19]  -> plan-core-loop.md
 Turns the sandbox into a GAME: XP + levels -> talent tree (Track A) + blueprint learning (Track B) ->
 crafting station -> a better weapon gated behind a mined material. Proves kill/gather -> craft -> survive
 is fun and locks the MP-ready character-vs-world data split.
-Done: one complete playable progression loop, end to end.
+DONE: one complete playable progression loop, end to end. Suite 343 -> 537 PASS / 0 FAIL. Shipped across
+5 phases (each headless-verified, adversarially reviewed, committed + pushed):
+- P1 XP+levels+dual currency (talent/blueprint points) + award hooks + HUD.
+- P2 TalentData/Talents + perks (melee/harvest) + respec; CharacterSheet portable bundle.
+- P3 RecipeData/KnownRecipes + learn + atomic (transactional) craft.
+- P4 Station + station-gate + 'f' craft menu (live-gated, auto-close).
+- P5 gated iron-sword content + end-to-end capstone proof.
+OPEN (user's call, not blocking): early-currency balance -- the first weapon spends 100% of the
+level-1->3 talent + blueprint banks (heavy_hitter 2 talent + recipe 2 blueprint). Tune or keep as the
+single early-game goal.
 
 ## EPIC 2 -- Base Building & Storage   (needs Epic 1)
 Placeable crafting stations; storage/containers; craft-from-storage (Enshrouded's lesson); Windrose-style
