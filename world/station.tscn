@@ -1,10 +1,14 @@
-[gd_scene load_steps=2 format=4]
+[gd_scene load_steps=4 format=4]
 
 [ext_resource type="Script" path="res://world/station.gd" id="1_station"]
+[ext_resource type="Resource" path="res://data/stone.tres" id="2_stone"]
+[ext_resource type="Resource" path="res://data/stick.tres" id="3_stick"]
 
 [node name="Station" type="Node2D"]
 script = ExtResource("1_station")
 station_tag = &"forge"
+build_items = Array[ItemData]([ExtResource("2_stone"), ExtResource("3_stick")])
+build_counts = Array[int]([3, 2])
 
 [node name="Body" type="Polygon2D" parent="."]
 color = Color(0.55, 0.42, 0.28, 1)

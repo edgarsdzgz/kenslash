@@ -40,6 +40,20 @@ const DEFAULT_REACH: float = WorldScale.TILE * 2.0
 ## the station contribute nothing (skipped by tags_in_range); a real station always carries a meaningful tag.
 @export var station_tag: StringName = &"forge"
 
+## BUILD COST to place this station in the world (plan-epic2-parts.md Phase 1 Part 1.1) -- the item DEFINITIONS
+## a placement CONSUMES, PARALLEL to build_counts (build_items[i] is spent build_counts[i] at a time). This is
+## the recipe-like cost idiom RecipeData uses for craft inputs (input_items/input_counts), mirrored here on the
+## PLACEABLE so the cost is authored WORLD data on the scene (station.tscn: stone x3 + stick x2).
+## components/builder.gd reads + deducts these to place the station; the Station itself never touches an
+## inventory (decoupled, exactly like the craft gate above stays decoupled from recipes). Empty = a free
+## placement. Independent of the station_tag gate -- a PLACED station gates crafting through station_tag
+## exactly as a scene-authored one does.
+@export var build_items: Array[ItemData] = []
+## How many of each build_items[i] one placement consumes, PARALLEL to build_items (authored the same length).
+## Aggregated (duplicate item rows summed) by components/builder.gd before its atomic precheck + consume, the
+## same summing Crafting does over a recipe's input rows.
+@export var build_counts: Array[int] = []
+
 
 func _ready() -> void:
 	# Join the group tags_in_range scans -- the same group-membership contract world/forageable.gd uses for the
@@ -73,4 +87,4 @@ static func tags_in_range(world_pos: Vector2, radius: float) -> Array[StringName
 			out.append(st.station_tag)
 	return out
 
-# Verified against: Godot 4.7.1 (2026-07-19)
+# Verified against: Godot 4.7.1 (2026-07-20)
