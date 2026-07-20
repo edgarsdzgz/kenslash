@@ -118,6 +118,9 @@ func _run() -> void:
 	# --- Recipes Track B: recipe learn model + blueprint-point/talent/level gates (self-contained: pure instances) ---
 	await TestRecipes.new().run(ctx)
 
+	# --- Crafting Track B: craft execution (consume inputs -> produce output, atomic, weight-aware; self-contained) ---
+	TestCrafting.new().run(ctx)
+
 	# --- Boulder terrain Environment #2 (self-contained: own holders/players/boulders + ChunkManager) ---
 	await TestBoulder.new().run(ctx)
 

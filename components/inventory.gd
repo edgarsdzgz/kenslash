@@ -107,6 +107,51 @@ func count_at(i: int) -> int:
 	return stack.count if stack != null else 0
 
 
+## Total count of `item` across ALL slots -- the hotbar window AND the background -- i.e. what the WHOLE
+## inventory holds, not any one slot. Crafting reads this to verify an input is present in the required
+## amount before it consumes anything (components/crafting.gd). A null item -> 0. Pure read.
+func count_of(item: ItemData) -> int:
+	if item == null:
+		return 0
+	var total: int = 0
+	for i in range(slots.size()):
+		if item_at(i) == item:
+			total += count_at(i)
+	return total
+
+
+## Whether the inventory holds AT LEAST `count` of `item` across all slots. Thin predicate over count_of,
+## used by crafting's atomic precheck. count <= 0 is trivially satisfied (nothing needed); a null item with
+## count > 0 is false. Pure read.
+func has_item(item: ItemData, count: int = 1) -> bool:
+	if count <= 0:
+		return true
+	return count_of(item) >= count
+
+
+## Remove up to `count` of `item` across slots, draining matching stacks IN SLOT ORDER and NULLING any slot
+## it empties, and RETURN how many were actually removed (< count only when fewer were held). A stack reduced
+## to 0 becomes an empty slot (null) so total_weight()/count_of stay exact. A null item or count <= 0 removes
+## nothing (returns 0). The mirror of add_item: crafting calls this only AFTER its atomic precheck (has_item)
+## guarantees the full amount is present, so there it always removes exactly `count` -- but the return value
+## keeps the helper honest for any other caller. Weight/encumbrance re-flow the normal way (the sum shrinks).
+func remove_item(item: ItemData, count: int = 1) -> int:
+	if item == null or count <= 0:
+		return 0
+	var removed: int = 0
+	for i in range(slots.size()):
+		if removed >= count:
+			break
+		var stack: ItemStack = slots[i]
+		if stack != null and stack.item == item:
+			var take: int = mini(stack.count, count - removed)
+			stack.count -= take
+			removed += take
+			if stack.count <= 0:
+				slots[i] = null
+	return removed
+
+
 ## The ItemData in the currently-equipped slot (any item kind, or null if empty).
 func equipped_item() -> ItemData:
 	return item_at(equipped_index)
