@@ -1,0 +1,17 @@
+[gd_resource type="Resource" script_class="ToolData" load_steps=2 format=3]
+
+[ext_resource type="Script" path="res://components/tool_data.gd" id="1_tool"]
+
+[resource]
+script = ExtResource("1_tool")
+display_name = "Iron Sword"
+atk = 10
+power = 8
+break_threshold = 3
+wear_max = 4
+max_durability = 60
+harvest_type = 0
+has_combo = true
+blade_color = Color(0.72, 0.75, 0.82, 1)
+blade_shape = PackedVector2Array(-18, -2.5, 11, -2.5, 19, 0, 11, 2.5, -18, 2.5)
+weight = 1300.0

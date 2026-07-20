@@ -121,6 +121,9 @@ func _run() -> void:
 	# --- Crafting Track B: craft execution (consume inputs -> produce output, atomic, weight-aware; self-contained) ---
 	TestCrafting.new().run(ctx)
 
+	# --- Gated weapon Part 5.1: mineable higher-tier ore + stronger forge recipe (talent+level+station gates) + equippable crafted sword (self-contained, remote) ---
+	await TestGatedWeapon.new().run(ctx)
+
 	# --- Crafting station Part 4.1: Station node + in-range tag scan + station-gated craft (self-contained, remote) ---
 	await TestStation.new().run(ctx)
 
@@ -177,4 +180,4 @@ func _fail(reason: String) -> void:
 	print("[FAIL] ", reason)
 	quit(1)
 
-# Verified against: Godot 4.7.1 (2026-07-18)
+# Verified against: Godot 4.7.1 (2026-07-19)

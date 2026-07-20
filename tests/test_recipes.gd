@@ -22,8 +22,11 @@ const SPIN: StringName = &"spin_cord"            # cost 1, no gate (fiber x3 -> 
 const FLINT: StringName = &"flint_kit"           # cost 2, no gate (stone x2 + fiber x1 -> cord x1)
 const HONED: StringName = &"honed_edge_kit"      # cost 2, prereq_talent blade_focus (stone x3 + stick x1 -> cord x2)
 const MASTER: StringName = &"master_cordage"     # cost 3, min_level 3 (fiber x5 -> cord x3)
+const FORGE: StringName = &"forge_iron_sword"    # cost 2, prereq heavy_hitter + min_level 3 + station forge (iron_ore x3 + stick x1 -> iron_sword)
 ## The Track A talent id the honed_edge_kit recipe is gated behind (an EXISTING data/talents node).
 const BLADE: StringName = &"blade_focus"
+## The Track A talent id the forge_iron_sword recipe is gated behind (an EXISTING data/talents node).
+const HEAVY: StringName = &"heavy_hitter"
 
 
 func run(ctx: TestContext) -> void:
@@ -40,10 +43,11 @@ func run(ctx: TestContext) -> void:
 func _catalog_tests(ctx: TestContext) -> void:
 	var k: KnownRecipes = KnownRecipes.new()
 
-	# The authored catalog has all five recipes and no strays.
-	ctx.check(k.all_recipes().size() == 5 and k.recipe(BUNDLE) != null and k.recipe(SPIN) != null
-			and k.recipe(FLINT) != null and k.recipe(HONED) != null and k.recipe(MASTER) != null,
-		"recipe catalog loads the 5 authored recipes (bundle_sticks, spin_cord, flint_kit, honed_edge_kit, master_cordage)",
+	# The authored catalog has all six recipes and no strays.
+	ctx.check(k.all_recipes().size() == 6 and k.recipe(BUNDLE) != null and k.recipe(SPIN) != null
+			and k.recipe(FLINT) != null and k.recipe(HONED) != null and k.recipe(MASTER) != null
+			and k.recipe(FORGE) != null,
+		"recipe catalog loads the 6 authored recipes (bundle_sticks, spin_cord, flint_kit, honed_edge_kit, master_cordage, forge_iron_sword)",
 		"recipe catalog missing a recipe or wrong size (size %d)" % k.all_recipes().size())
 
 	# Costs + the two gate values match the authored .tres (pins the catalog the test reasons about).
@@ -63,6 +67,16 @@ func _catalog_tests(ctx: TestContext) -> void:
 			and k.recipe(BUNDLE).input_counts[0] == 2 and k.recipe(BUNDLE).output_count == 4,
 		"authored I/O loads: honed_edge_kit has 2 parallel inputs + an output x2, bundle_sticks 1 input x2 -> output x4 (inert until Part 3.2)",
 		"authored recipe I/O arrays did not load as expected")
+
+	# The Part 5.1 gated WEAPON recipe: forge_iron_sword carries the FULL triple gate (talent + level + station)
+	# AND wires its ore-in/weapon-out. Pins the closes-the-loop recipe the gated-weapon suite exercises.
+	var forge: RecipeData = k.recipe(FORGE)
+	ctx.check(forge.blueprint_cost == 2 and forge.prereq_talent == HEAVY and forge.min_level == 3
+			and forge.station_tag == &"forge" and forge.input_items.size() == 2
+			and forge.input_counts.size() == 2 and forge.input_counts[0] == 3 and forge.input_counts[1] == 1
+			and (forge.output_item as ToolData) != null and forge.output_count == 1,
+		"authored forge_iron_sword: cost 2, gated by heavy_hitter + level 3 + station forge, consumes ore x3 + stick x1, outputs a ToolData weapon x1",
+		"forge_iron_sword costs/gates/IO drifted from the .tres")
 
 	# Unknown id -> no recipe.
 	ctx.check(k.recipe(&"does_not_exist") == null,
