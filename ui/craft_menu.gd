@@ -26,13 +26,19 @@ var _crafting: Crafting = Crafting.new()
 ## The character whose KNOWN recipes are listed (its KnownRecipes), set by open(). Read-only use -- the menu
 ## never mutates the sheet; a craft only touches the inventory (through Crafting).
 var _sheet: CharacterSheet = null
-## The inventory a craft pulls inputs from + drops output into (Epic 1: inventory-only; the storage seam lives in
-## crafting.gd, inert here). Set by open().
+## The inventory a craft pulls inputs from + drops output into. Epic 2 Part 3.1 adds nearby container stores as an
+## additional source via _extra_stores (a craft drains this inventory FIRST, then those); Crafting owns the split.
+## Set by open().
 var _inventory: Inventory = null
 ## The station tags currently in range of the player (Station.tags_in_range), routed in by open() so a station-
 ## gated recipe is craftable ONLY when its tag is present. A COPY is held so a later world change cannot mutate
 ## the menu's view mid-session.
 var _tags: Array[StringName] = []
+## The in-range container STORES a craft may also source inputs from (Epic 2 Part 3.1 craft-from-storage), routed
+## in by open() and refreshed live by set_extra_stores(). Only the LIST is copied -- the held entries are the LIVE
+## container Inventory refs, so a craft actually consumes from the nearby chests (personal inventory first, then
+## these in order). DEFAULTS empty so a station with no chest nearby behaves exactly as Epic 1.
+var _extra_stores: Array[Inventory] = []
 ## The listed recipe ids, in KnownRecipes' insertion order (deterministic) -- the logical list the query methods
 ## read, independent of the presentation row lifecycle.
 var _ids: Array[StringName] = []
@@ -48,13 +54,16 @@ var is_open: bool = false
 @onready var _list: VBoxContainer = $Panel/Column/List
 
 
-## OPEN the menu against a live sheet/inventory + the station tags in range (the interaction seam hands these in).
-## Stores the refs, marks open + visible, and (re)builds the listing of the player's KNOWN recipes with each
-## recipe's live craftable flag. Idempotent -- re-opening just refreshes against the current state.
-func open(sheet: CharacterSheet, inventory: Inventory, in_range_tags: Array[StringName]) -> void:
+## OPEN the menu against a live sheet/inventory + the station tags in range (the interaction seam hands these in),
+## plus the in-range container STORES (Epic 2 Part 3.1) a craft may also source from. Stores the refs, marks open
+## + visible, and (re)builds the listing of the player's KNOWN recipes with each recipe's live craftable flag.
+## Idempotent -- re-opening just refreshes against the current state. `extra_stores` DEFAULTS to [] so an
+## inventory-only open (a station with no chest nearby, or a pure-API test) is byte-identical to Epic 1.
+func open(sheet: CharacterSheet, inventory: Inventory, in_range_tags: Array[StringName], extra_stores: Array[Inventory] = []) -> void:
 	_sheet = sheet
 	_inventory = inventory
 	_tags = in_range_tags.duplicate()
+	_extra_stores = extra_stores.duplicate()  # copy the LIST; the Inventory refs stay live (a craft consumes them)
 	is_open = true
 	visible = true
 	_rebuild()
@@ -95,7 +104,7 @@ func craft_selected() -> bool:
 func craft(id: StringName) -> bool:
 	if _sheet == null or _inventory == null:
 		return false
-	var ok: bool = _crafting.craft(id, _sheet, _inventory, _tags)
+	var ok: bool = _crafting.craft(id, _sheet, _inventory, _tags, _extra_stores)
 	if ok:
 		_rebuild()
 	return ok
@@ -125,7 +134,7 @@ func listed_ids() -> Array[StringName]:
 ## ad-hoc full-CATALOG lookup that could show craftable for an UNLEARNED id or when a full inventory would make
 ## craft() refuse the output; the flag can no longer lie. Exposed so a test asserts it without parsing a label.
 func is_craftable(id: StringName) -> bool:
-	return _crafting.would_craft(id, _sheet, _inventory, _tags)
+	return _crafting.would_craft(id, _sheet, _inventory, _tags, _extra_stores)
 
 
 ## Update the in-range station tags to `in_range_tags` (a COPY) and repaint, so is_craftable + craft judge against
@@ -136,6 +145,17 @@ func is_craftable(id: StringName) -> bool:
 func set_tags(in_range_tags: Array[StringName]) -> void:
 	_tags = in_range_tags.duplicate()
 	_repaint_rows()
+
+
+## Update the in-range container STORES to `stores` (Epic 2 Part 3.1 craft-from-storage) so is_craftable + craft
+## judge availability against the chests RIGHT NOW, not the snapshot open() captured. Only the LIST is copied --
+## the held entries are the LIVE container Inventory refs, so a craft actually consumes from them (personal
+## inventory first, then these in order). Deliberately does NOT repaint: the HUD calls this each frame right
+## BEFORE set_tags (which repaints once with the fresh stores in view), so a single repaint per frame reflects
+## both -- the container analogue of set_tags without a redundant second row rebuild. The live query methods
+## (is_craftable/craft) read _extra_stores directly, so they are correct the instant this returns regardless.
+func set_extra_stores(stores: Array[Inventory]) -> void:
+	_extra_stores = stores.duplicate()
 
 
 ## How many recipes are listed (== the known count). Reads _ids, not the row children, so it is exact regardless
@@ -177,4 +197,4 @@ func _repaint_rows() -> void:
 		row.text = "%s%s  [%s]" % [mark, name, state]
 		_list.add_child(row)
 
-# Verified against: Godot 4.7.1 (2026-07-19)
+# Verified against: Godot 4.7.1 (2026-07-20)

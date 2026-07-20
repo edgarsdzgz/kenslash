@@ -144,24 +144,39 @@ func consume_container_open() -> StorageContainer:
 	return box
 
 
-## The nearest StorageContainer within `radius` of `world_pos` (the "container" group), or null -- the container
-## analogue of Station.tags_in_range (a static distance compare over a placeable group). STATIC + decoupled so the
-## interaction (activate/process) AND the HUD's walk-away re-scan (ui/hud.gd) share ONE scan, and so world/
-## container.gd stays untouched (the scan lives with the interaction, not on the container). The active SceneTree
-## is read via Engine.get_main_loop() (a fixed engine handle, no Time/OS/RNG) -- the same idiom Station.tags_in_range
-## uses -- so no tree/player argument is threaded through. Skips freed/queued nodes; returns null when none in reach.
-static func nearest_container(world_pos: Vector2, radius: float) -> StorageContainer:
+## EVERY StorageContainer within `radius` of `world_pos` (the "container" group), in the group's scan order --
+## the ONE group-within-radius traversal both nearest_container (below) and Phase 3's craft-from-storage
+## (ui/hud.gd feeds these stores to CraftMenu -> Crafting) share, so there is never a second/third/fourth scan
+## of the same group. STATIC + decoupled (the scan lives with the interaction, not on world/container.gd, which
+## stays untouched), reading the active SceneTree via Engine.get_main_loop() (a fixed engine handle, no Time/OS/
+## RNG -- the same idiom Station.tags_in_range uses) so no tree/player argument is threaded through. Skips
+## freed/queued nodes (is_instance_valid guard). Returns an empty typed array when none are in reach. Order is
+## the deterministic group order (no distance sort) -- the craft consume walks these stores in exactly this order.
+static func containers_in_range(world_pos: Vector2, radius: float) -> Array[StorageContainer]:
+	var out: Array[StorageContainer] = []
 	var loop: SceneTree = Engine.get_main_loop() as SceneTree
 	if loop == null:
-		return null
-	var best: StorageContainer = null
-	var best_dist: float = radius
+		return out
 	for node in loop.get_nodes_in_group(StorageContainer.GROUP):
 		if not (node is StorageContainer):
 			continue
 		var box: StorageContainer = node as StorageContainer
 		if not is_instance_valid(box) or box.is_queued_for_deletion():
 			continue
+		if world_pos.distance_to(box.global_position) <= radius:
+			out.append(box)
+	return out
+
+
+## The nearest StorageContainer within `radius` of `world_pos`, or null -- the container analogue of
+## Station.tags_in_range for the SINGLE "which chest does 'f' open" pick. REUSES containers_in_range's ONE
+## group-within-radius traversal (never a duplicate scan of the group) and then keeps the closest, so the
+## interaction (activate/process) and the HUD's walk-away re-scan share the exact same in-range set. Returns
+## null when none are in reach.
+static func nearest_container(world_pos: Vector2, radius: float) -> StorageContainer:
+	var best: StorageContainer = null
+	var best_dist: float = radius
+	for box in containers_in_range(world_pos, radius):
 		var dist: float = world_pos.distance_to(box.global_position)
 		if dist <= best_dist:
 			best_dist = dist

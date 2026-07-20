@@ -178,14 +178,29 @@ func _refresh_craft_menu() -> void:
 			_craft_menu.close()
 		else:
 			_container_panel.close()  # only ONE panel (craft OR container) open at a time -- opening one closes the other
-			_craft_menu.open(_player.character(), _player.inventory, tags)
+			_craft_menu.open(_player.character(), _player.inventory, tags, _craft_stores())
 		return
 	if _craft_menu.is_open:
 		var live_tags: Array[StringName] = Station.tags_in_range(_player.global_position, Station.DEFAULT_REACH)
 		if live_tags.is_empty():
 			_craft_menu.close()
 		else:
-			_craft_menu.set_tags(live_tags)
+			_craft_menu.set_extra_stores(_craft_stores())  # refresh chest sources first (no repaint)...
+			_craft_menu.set_tags(live_tags)                 # ...then set_tags repaints once with both fresh
+
+
+## The in-range container STORES the open craft menu may source inputs from (Epic 2 Part 3.1 craft-from-storage):
+## the Inventory of every StorageContainer within Interaction.CONTAINER_REACH of the player, via the SAME shared
+## group-within-radius scan the container-open 'f' uses (Interaction.containers_in_range), so is_craftable lights
+## up + a craft consumes from nearby chests. LIVE store refs (never copies) so a craft actually drains them. Empty
+## when no chest is near -- the menu then behaves exactly as Epic 1 (inventory-only). The player never reaches
+## into the UI; the HUD PULLS these each frame, mirroring the live-tags re-scan.
+func _craft_stores() -> Array[Inventory]:
+	var stores: Array[Inventory] = []
+	for box in Interaction.containers_in_range(_player.global_position, Interaction.CONTAINER_REACH):
+		if box.store != null:
+			stores.append(box.store)
+	return stores
 
 
 ## Container transfer panel open/close driver (plan-epic2-parts.md Phase 2 Part 2.3): the HUD MANAGES the open panel

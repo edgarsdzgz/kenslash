@@ -22,11 +22,17 @@ extends RefCounted
 ## membership + integer counts over the passed components; no Input/scene/Time/OS/RNG (NOTES.md rule), so every
 ## craft is exactly headless-assertable and server-re-simulable.
 ##
-## INVENTORY-ONLY SOURCE (Epic 1). Inputs are pulled from the player's Inventory ONLY; Epic 2's craft-from-
-## nearby-STORAGE plugs in at the marked seam in _has_inputs / _consume (see the comments there). Weight is
-## respected the NORMAL way: removing inputs and adding the output re-flow through the Inventory's own
-## remove_item/add_item, so total_weight()/encumbrance update exactly as for any pickup; this component invents
-## NO hard weight block (the inventory enforces none on add -- pickup never blocks, so neither does a craft).
+## CRAFT-FROM-STORAGE (Epic 2 Part 3.1). Inputs are pulled from the player's Inventory PLUS any in-range
+## container stores passed as `extra_stores` (ui/hud.gd collects them via Interaction.containers_in_range).
+## AVAILABILITY aggregates count_of across the inventory + every store; CONSUME is a STABLE order -- personal
+## inventory FIRST, then each store in the passed order, taking only the shortfall from each. The transaction is
+## ATOMIC ACROSS ALL touched stores: the inventory AND every store are snapshotted before consuming, and on any
+## output-overflow EVERY snapshot is restored, so a failed craft leaves the inventory AND every container byte-
+## identical (consuming nothing from any source). `extra_stores` DEFAULTS to [] so every Epic 1 inventory-only
+## call is byte-identical. Weight is respected the NORMAL way: removing inputs and adding the output re-flow
+## through each Inventory's own remove_item/add_item, so total_weight()/encumbrance update exactly as for any
+## pickup; this component invents NO hard weight block (the inventory enforces none on add -- pickup never
+## blocks, so neither does a craft).
 
 
 ## Whether `inventory` holds the MATERIALS for `recipe` RIGHT NOW -- the recipe is real (non-null) and the
@@ -37,13 +43,15 @@ extends RefCounted
 ## future craft UI can grey out un-affordable KNOWN recipes without re-resolving them. Pure read -- changes
 ## nothing. A null recipe (or inventory) -> false.
 ##
-## EPIC 2 STORAGE SEAM: today availability is (inventory) only. When craft-from-storage lands, this becomes
-## "held across inventory + every in-range container"; the extra source is OR-ed in via _has_inputs, leaving
-## this signature and the atomic contract intact.
-func has_materials_for(recipe: RecipeData, inventory: Inventory) -> bool:
+## CRAFT-FROM-STORAGE (Epic 2 Part 3.1): availability is aggregated across the player's `inventory` AND every
+## `extra_store` (the in-range container stores ui/hud.gd feeds in). `extra_stores` DEFAULTS to [] so an
+## inventory-only query is byte-identical to before; when a nearby chest holds the shortfall, this reports true
+## and the recipe becomes craftable. A null entry in extra_stores is skipped. Still a MATERIAL-ONLY predicate
+## (no learn/station/output-fit) -- craft() owns those.
+func has_materials_for(recipe: RecipeData, inventory: Inventory, extra_stores: Array[Inventory] = []) -> bool:
 	if recipe == null or inventory == null:
 		return false
-	return _has_inputs(_aggregate_inputs(recipe), inventory)
+	return _has_inputs(_aggregate_inputs(recipe), inventory, extra_stores)
 
 
 ## Execute one craft of `recipe_id` for `sheet`, pulling inputs from `inventory`. ATOMIC + guarded:
@@ -66,7 +74,15 @@ func has_materials_for(recipe: RecipeData, inventory: Inventory) -> bool:
 ## Station.tags_in_range collects it); it DEFAULTS to [] so every existing craft-anywhere call site is
 ## unchanged and only ever matters for a station-gated recipe. Crafting stays decoupled from station NODES --
 ## it sees only this passed tag list, never a Station.
-func craft(recipe_id: StringName, sheet: CharacterSheet, inventory: Inventory, in_range_station_tags: Array[StringName] = []) -> bool:
+##
+## CRAFT-FROM-STORAGE (Epic 2 Part 3.1): `extra_stores` is the in-range container stores (ui/hud.gd collects
+## them via Interaction.containers_in_range) and DEFAULTS to [] so an inventory-only craft is byte-identical to
+## Epic 1. AVAILABILITY is aggregated across the inventory + every extra_store; CONSUME is in a STABLE order --
+## the personal INVENTORY drained FIRST, then each extra_store in the passed order until each input's need is
+## met. ATOMIC ACROSS ALL touched stores: the inventory AND every extra_store are snapshotted before consuming,
+## and on output-overflow EVERY snapshot is restored -- a failed craft leaves the inventory AND every container
+## byte-identical. The output is always added to the personal `inventory`.
+func craft(recipe_id: StringName, sheet: CharacterSheet, inventory: Inventory, in_range_station_tags: Array[StringName] = [], extra_stores: Array[Inventory] = []) -> bool:
 	if sheet == null or sheet.known_recipes == null or inventory == null:
 		return false
 	# (1) LEARN gate -- an UNKNOWN recipe never crafts (Part 3.1 known set).
@@ -82,18 +98,21 @@ func craft(recipe_id: StringName, sheet: CharacterSheet, inventory: Inventory, i
 	if needs_station(recipe) and not in_range_station_tags.has(recipe.station_tag):
 		return false
 	# (3) ATOMIC PRECHECK -- aggregate duplicate input rows, then verify every DISTINCT input's TOTAL is present
-	# BEFORE removing any. Bail with nothing consumed.
+	# ACROSS the inventory + extra_stores BEFORE removing any. Bail with nothing consumed.
 	var needs: Dictionary = _aggregate_inputs(recipe)
-	if not _has_inputs(needs, inventory):
+	if not _has_inputs(needs, inventory, extra_stores):
 		return false
-	# (4) TRANSACTIONAL: snapshot, consume the exact per-item totals, produce the output. If the output does not
-	# fully fit (a full inventory), roll the snapshot back so the craft consumes NOTHING and produces NOTHING.
-	# We do NOT precheck output space first: consuming the inputs can free the very slot the output needs.
+	# (4) TRANSACTIONAL across ALL touched stores: snapshot the inventory AND every extra_store, consume the exact
+	# per-item totals (personal first, then the stores in order), produce the output into the inventory. If the
+	# output does not fully fit (a full inventory), roll back EVERY snapshot so the craft consumes NOTHING from
+	# ANY store and produces NOTHING. We do NOT precheck output space first: consuming can free the needed slot.
 	var snap: Array = inventory.snapshot()
-	_consume(needs, inventory)
+	var extra_snaps: Array = _snapshot_stores(extra_stores)
+	_consume(needs, inventory, extra_stores)
 	var overflow: int = inventory.add_item(recipe.output_item, recipe.output_count)
 	if overflow > 0:
 		inventory.restore(snap)
+		_restore_stores(extra_stores, extra_snaps)
 		return false
 	return true
 
@@ -107,7 +126,13 @@ func craft(recipe_id: StringName, sheet: CharacterSheet, inventory: Inventory, i
 ## full CATALOG, is_known reads the learned set) or when a full inventory would make craft() refuse the output.
 ## Deterministic: pure membership + integer counts over the passed components, snapshot/restore only, no Time/OS/
 ## RNG. `in_range_station_tags` mirrors craft() -- defaults to [] so a craft-anywhere dry-run ignores it.
-func would_craft(recipe_id: StringName, sheet: CharacterSheet, inventory: Inventory, in_range_station_tags: Array[StringName] = []) -> bool:
+##
+## CRAFT-FROM-STORAGE (Epic 2 Part 3.1): `extra_stores` mirrors craft() -- defaults to [] so an inventory-only
+## dry-run is byte-identical. When passed, availability aggregates across the inventory + stores and the
+## snapshot/consume/restore spans the inventory AND every extra_store, so a full-inventory dry-run leaves EVERY
+## store byte-identical (a net no-op) exactly as craft() would leave them on its overflow rollback. This is what
+## makes CraftMenu.is_craftable light up from a nearby chest while committing nothing.
+func would_craft(recipe_id: StringName, sheet: CharacterSheet, inventory: Inventory, in_range_station_tags: Array[StringName] = [], extra_stores: Array[Inventory] = []) -> bool:
 	if sheet == null or sheet.known_recipes == null or inventory == null:
 		return false
 	# (1) LEARN gate -- an UNKNOWN recipe is never craftable (matches craft()'s is_known chokepoint).
@@ -120,17 +145,20 @@ func would_craft(recipe_id: StringName, sheet: CharacterSheet, inventory: Invent
 	# (2.5) STATION gate -- a station-gated recipe is craftable ONLY when its tag is in range.
 	if needs_station(recipe) and not in_range_station_tags.has(recipe.station_tag):
 		return false
-	# (3) MATERIAL precheck -- every distinct input's aggregated total must be present.
+	# (3) MATERIAL precheck -- every distinct input's aggregated total must be present across inventory + stores.
 	var needs: Dictionary = _aggregate_inputs(recipe)
-	if not _has_inputs(needs, inventory):
+	if not _has_inputs(needs, inventory, extra_stores):
 		return false
-	# (4) OUTPUT-FIT dry-run -- run craft()'s exact snapshot/consume/produce, then ALWAYS roll back. The overflow
-	# tells us whether the output would have fit (a full inventory where consuming the inputs did not free the
-	# needed slot makes craft() refuse); either way the inventory is restored byte-identical (never committed).
+	# (4) OUTPUT-FIT dry-run -- run craft()'s exact multi-store snapshot/consume/produce, then ALWAYS roll back
+	# EVERY store. The overflow tells us whether the output would have fit (a full inventory where consuming the
+	# inputs did not free the needed slot makes craft() refuse); either way the inventory AND every extra_store
+	# are restored byte-identical (never committed).
 	var snap: Array = inventory.snapshot()
-	_consume(needs, inventory)
+	var extra_snaps: Array = _snapshot_stores(extra_stores)
+	_consume(needs, inventory, extra_stores)
 	var overflow: int = inventory.add_item(recipe.output_item, recipe.output_count)
 	inventory.restore(snap)
+	_restore_stores(extra_stores, extra_snaps)
 	return overflow == 0
 
 
@@ -157,14 +185,25 @@ func _aggregate_inputs(recipe: RecipeData) -> Dictionary:
 ## material test). `needs` is the item -> total map from _aggregate_inputs, so duplicate rows were already
 ## summed and each item is checked once against the whole-inventory count.
 ##
-## EPIC 2 STORAGE SEAM: availability here is inventory.count_of ONLY. Craft-from-storage widens the held count
-## to (inventory + nearby containers) before the >= compare, without changing WHO calls this or the atomic
-## guarantee -- one summation site, one place to extend.
-func _has_inputs(needs: Dictionary, inventory: Inventory) -> bool:
+## CRAFT-FROM-STORAGE (Epic 2 Part 3.1): availability is the SUM of count_of across the inventory + every
+## extra_store (via _available), so an input the player lacks but a nearby chest holds still clears the >=
+## compare. One summation site, unchanged callers, unchanged atomic guarantee (craft()/would_craft() own the
+## transaction). An empty extra_stores collapses to the Epic 1 inventory-only test.
+func _has_inputs(needs: Dictionary, inventory: Inventory, extra_stores: Array[Inventory]) -> bool:
 	for item: ItemData in needs:
-		if inventory.count_of(item) < int(needs[item]):
+		if _available(item, inventory, extra_stores) < int(needs[item]):
 			return false
 	return true
+
+
+## Total count of `item` held across the personal inventory + every extra_store (the aggregate craft-from-storage
+## availability). A null store is skipped. Pure read.
+func _available(item: ItemData, inventory: Inventory, extra_stores: Array[Inventory]) -> int:
+	var total: int = inventory.count_of(item)
+	for store: Inventory in extra_stores:
+		if store != null:
+			total += store.count_of(item)
+	return total
 
 
 ## Remove each DISTINCT input's aggregated TOTAL from the inventory. Called ONLY after _has_inputs cleared, so
@@ -172,11 +211,39 @@ func _has_inputs(needs: Dictionary, inventory: Inventory) -> bool:
 ## removed EXACTLY once at its total -- never row-by-row (which would double-drain a repeated item). Kept
 ## separate from the precheck so the READ (can I?) and the WRITE (do it) never interleave.
 ##
-## EPIC 2 STORAGE SEAM: today every input is drawn from `inventory`. Craft-from-storage drains the inventory
-## FIRST, then the shortfall from in-range containers here, in a fixed deterministic order.
-func _consume(needs: Dictionary, inventory: Inventory) -> void:
+## CRAFT-FROM-STORAGE (Epic 2 Part 3.1): each input's total is drained in a STABLE deterministic order --
+## the personal `inventory` FIRST, then each extra_store in the passed order -- taking from each only what is
+## still needed (remove_item returns how many it actually pulled) until the per-item need is met. Called ONLY
+## after _has_inputs cleared, so the aggregate is guaranteed sufficient and `remaining` always reaches 0 (never
+## a partial). No Time/OS/RNG -- the order is fixed by the arguments, so the split is exactly reproducible.
+func _consume(needs: Dictionary, inventory: Inventory, extra_stores: Array[Inventory]) -> void:
 	for item: ItemData in needs:
-		inventory.remove_item(item, int(needs[item]))
+		var remaining: int = int(needs[item])
+		remaining -= inventory.remove_item(item, remaining)  # personal inventory drained FIRST
+		for store: Inventory in extra_stores:
+			if remaining <= 0:
+				break
+			if store != null:
+				remaining -= store.remove_item(item, remaining)
+
+
+## Snapshot every extra_store for the cross-store transaction -- a parallel array of Inventory.snapshot()
+## captures (null for a null store slot), the multi-store analogue of the single inventory snapshot. Pairs with
+## _restore_stores; craft()/would_craft() take these before consuming so a failed/dry craft rolls every store
+## back byte-identical.
+func _snapshot_stores(extra_stores: Array[Inventory]) -> Array:
+	var snaps: Array = []
+	for store: Inventory in extra_stores:
+		snaps.append(store.snapshot() if store != null else null)
+	return snaps
+
+
+## Restore every extra_store from a _snapshot_stores() capture (the inverse) -- the cross-store rollback that,
+## with inventory.restore(), leaves EVERY touched store byte-identical when a craft overflows or a dry-run ends.
+func _restore_stores(extra_stores: Array[Inventory], snaps: Array) -> void:
+	for i in range(extra_stores.size()):
+		if extra_stores[i] != null:
+			extra_stores[i].restore(snaps[i])
 
 
 ## Whether `recipe` requires a crafting station to EXECUTE -- true IFF it carries a non-empty station_tag
@@ -186,4 +253,4 @@ func _consume(needs: Dictionary, inventory: Inventory) -> void:
 func needs_station(recipe: RecipeData) -> bool:
 	return recipe != null and recipe.station_tag != &""
 
-# Verified against: Godot 4.7.1 (2026-07-19)
+# Verified against: Godot 4.7.1 (2026-07-20)
