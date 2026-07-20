@@ -152,21 +152,33 @@ func _refresh_prompt() -> void:
 	_prompt_label.visible = true
 
 
-## Craft menu open/close driver (plan-epic1-parts.md Part 4.2): PULL the player's interaction open request each
-## frame and toggle the menu -- pressing 'f' next to a station opens the menu, pressing it again (still by the
-## station) closes it. When opening, hand the menu the player's live CharacterSheet + Inventory and the station
-## tags that came with the request. The HUD reaches into the player-owned interaction (like it reads _stamina /
-## _active_durability); the player/interaction never reach into this UI. Guarded until the interaction exists.
+## Craft menu open/close driver (plan-epic1-parts.md Part 4.2): the HUD MANAGES the open menu each frame so it can
+## never get stuck and its station gate is always judged against LIVE station presence. Fixed ordering:
+##   1. An 'f'-near-a-station open REQUEST takes priority -- consume it and TOGGLE: if the menu is already open,
+##      close it (a second 'f' by the station still toggles closed) and RETURN; otherwise open it with the
+##      player's live CharacterSheet + Inventory and the tags that came with the request.
+##   2. Otherwise, if the menu is OPEN, re-scan the station tags in range RIGHT NOW: if EMPTY (walked away / the
+##      station streamed out) auto-dismiss with close() -- never stuck; else feed the current tags via set_tags so
+##      is_craftable + craft evaluate against the station actually present, not the stale snapshot from open().
+## The HUD reaches into the player-owned interaction (like it reads _stamina / _active_durability) and re-derives
+## live station presence with Station.tags_in_range; the player/interaction never reach into this UI. Guarded
+## until the interaction exists.
 func _refresh_craft_menu() -> void:
 	if _player._interaction == null:
 		return
-	if not _player._interaction.craft_open_pending():
+	if _player._interaction.craft_open_pending():
+		var tags: Array[StringName] = _player._interaction.consume_craft_open()
+		if _craft_menu.is_open:
+			_craft_menu.close()
+		else:
+			_craft_menu.open(_player.character(), _player.inventory, tags)
 		return
-	var tags: Array[StringName] = _player._interaction.consume_craft_open()
 	if _craft_menu.is_open:
-		_craft_menu.close()
-	else:
-		_craft_menu.open(_player.character(), _player.inventory, tags)
+		var live_tags: Array[StringName] = Station.tags_in_range(_player.global_position, Station.DEFAULT_REACH)
+		if live_tags.is_empty():
+			_craft_menu.close()
+		else:
+			_craft_menu.set_tags(live_tags)
 
 
 ## Human-readable key currently bound to the_action_button: the first InputEventKey's keycode

@@ -67,6 +67,18 @@ func close() -> void:
 	visible = false
 
 
+## Manual dismiss: Escape (the "ui_cancel" action) closes the menu -- but ONLY while it is open. Guarded so a
+## closed menu swallows NOTHING (the early return leaves the event for the rest of the game), and the handled
+## flag is set only when we actually consume the Escape to close. Minimal: no per-frame input polling, just this
+## single-event hook. The HUD still owns the 'f' open/toggle; this is only the standalone Escape-to-close.
+func _unhandled_input(event: InputEvent) -> void:
+	if not is_open:
+		return
+	if event.is_action_pressed("ui_cancel"):
+		close()
+		get_viewport().set_input_as_handled()
+
+
 ## Craft the SELECTED recipe (craft_selected) -- the row a player would confirm. No selection (empty list) -> a
 ## refused no-op returning false. Delegates to craft(id).
 func craft_selected() -> bool:
@@ -106,20 +118,24 @@ func listed_ids() -> Array[StringName]:
 	return _ids.duplicate()
 
 
-## Whether `id` can be crafted RIGHT NOW from the open state: it is listed, has its materials in the inventory
-## (Crafting.has_materials_for), AND -- if it needs a station (Crafting.needs_station) -- that station's tag is in
-## range. The SAME predicate the row rendering uses, exposed so a test asserts the flag without parsing a label.
+## Whether `id` can be crafted RIGHT NOW from the open state -- delegated WHOLESALE to Crafting.would_craft, the
+## transactional dry-run of craft() (known + materials + station + the output FITS), so the "craftable" flag
+## EXACTLY matches craft() acceptance. It is a NET NO-OP on the inventory (would_craft snapshots -> tests ->
+## restores), never commits, and judges against the CURRENT _tags (kept live by set_tags). This replaces the old
+## ad-hoc full-CATALOG lookup that could show craftable for an UNLEARNED id or when a full inventory would make
+## craft() refuse the output; the flag can no longer lie. Exposed so a test asserts it without parsing a label.
 func is_craftable(id: StringName) -> bool:
-	if _sheet == null or _inventory == null:
-		return false
-	var r: RecipeData = _sheet.known_recipes.recipe(id)
-	if r == null:
-		return false
-	if not _crafting.has_materials_for(r, _inventory):
-		return false
-	if _crafting.needs_station(r) and not _tags.has(r.station_tag):
-		return false
-	return true
+	return _crafting.would_craft(id, _sheet, _inventory, _tags)
+
+
+## Update the in-range station tags to `in_range_tags` (a COPY) and repaint, so is_craftable + craft judge against
+## the station presence RIGHT NOW, not the snapshot open() captured. The HUD calls this each frame while the menu
+## is open (Station.tags_in_range re-scanned live) so walking up to / away from a station re-evaluates the gate --
+## the stale-snapshot bypass (craft a forge recipe with no forge present) can never happen. Presentation-safe: the
+## rows recompute their craftable/blocked flags off the fresh tags.
+func set_tags(in_range_tags: Array[StringName]) -> void:
+	_tags = in_range_tags.duplicate()
+	_repaint_rows()
 
 
 ## How many recipes are listed (== the known count). Reads _ids, not the row children, so it is exact regardless

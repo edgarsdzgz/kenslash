@@ -35,6 +35,8 @@ func run(ctx: TestContext) -> void:
 	await _menu_api(ctx)
 	await _interaction_seam(ctx)
 	await _integration(ctx)
+	await _regressions_pure(ctx)
+	await _regressions_hud(ctx)
 
 
 ## MENU API (pure): drive ui/craft_menu.tscn directly with hand-built sheet/inventory + tag lists. No station
@@ -214,6 +216,165 @@ func _integration(ctx: TestContext) -> void:
 	ctx.check(not cm.is_open,
 		"a second 'f' beside the Station TOGGLES the craft menu closed",
 		"second 'f' did not close the craft menu (open=%s)" % [str(cm.is_open)])
+
+	sw.queue_free()
+	await ctx.settle_idle()
+
+
+## REGRESSIONS (pure menu API): the honesty + edge-case gaps the PHASE 4 review batch closed. is_craftable now
+## delegates to Crafting.would_craft (known + materials + station + the output FITS), so the flag can no longer lie
+## about an UNLEARNED catalog id or a full inventory the output cannot fit; the empty-selection + unknown-id craft
+## paths refuse cleanly; and an unaffordable flag flips to craftable once materials arrive. All off the raw menu.
+func _regressions_pure(ctx: TestContext) -> void:
+	var holder: Node2D = Node2D.new()
+	ctx.tree.root.add_child(holder)
+	var menu: CraftMenu = CRAFT_MENU_SCENE.instantiate() as CraftMenu
+	holder.add_child(menu)
+	await ctx.tree.physics_frame
+
+	var FIBER: ItemData = load("res://data/fiber.tres")
+	var CORD: ItemData = load("res://data/cord.tres")
+	var STICK: ItemData = load("res://data/stick.tres")
+
+	# --- would_craft HONESTY 1: an UNLEARNED catalog id is NOT craftable even with its materials + a forge in
+	# range. master_cordage is a real CATALOG recipe but this sheet only LEARNED spin_cord; the old is_craftable
+	# resolved ids from the full catalog and ignored the learn set, so it would have shown master_cordage craftable.
+	var sheet: CharacterSheet = CharacterSheet.new()
+	sheet.known_recipes.learn(SPIN)                          # SPIN learned; MASTER a real catalog id but UNLEARNED
+	var inv: Inventory = Inventory.new()
+	inv.add_item(FIBER, 5)                                   # enough for MASTER's 5 fiber, were it known
+	menu.open(sheet, inv, [&"forge"] as Array[StringName])  # forge in range -> only the LEARN gate can block MASTER
+	ctx.check(not menu.is_craftable(MASTER) and menu.is_craftable(SPIN),
+		"is_craftable is HONEST about the learn set: an UNLEARNED catalog id (master_cordage) is NOT craftable even with materials + forge in range; the learned spin_cord IS",
+		"is_craftable lied about an unlearned catalog id (master=%s, spin=%s)" % [str(menu.is_craftable(MASTER)), str(menu.is_craftable(SPIN))])
+
+	# --- would_craft HONESTY 2: a FULL inventory where the output cannot fit -> is_craftable false AND craft()
+	# refuses (they AGREE). fiber(5) in slot 0 (consuming 3 leaves 2, so that slot stays occupied), the other 14
+	# slots packed with sticks -> no room for the cord output -> overflow -> craft() rolls back, would_craft false.
+	var full_sheet: CharacterSheet = CharacterSheet.new()
+	full_sheet.known_recipes.learn(SPIN)
+	var full_inv: Inventory = Inventory.new()
+	full_inv.add_item(FIBER, 5)                              # slot 0
+	full_inv.add_item(STICK, 255 * 14)                      # slots 1..14 -> every slot now occupied
+	menu.open(full_sheet, full_inv, [] as Array[StringName])
+	var full_flag: bool = menu.is_craftable(SPIN)
+	var full_craft: bool = menu.craft(SPIN)
+	ctx.check(not full_flag and not full_craft and full_inv.count_of(FIBER) == 5 and full_inv.count_of(CORD) == 0,
+		"is_craftable + craft() AGREE on a full inventory: the output cannot fit -> not craftable AND craft() refuses (fiber stays 5, no cord, nothing lost)",
+		"full-inventory honesty broke (flag=%s, craft=%s, fiber=%d, cord=%d)" % [str(full_flag), str(full_craft), full_inv.count_of(FIBER), full_inv.count_of(CORD)])
+
+	# --- craft_selected() with NOTHING selected (EMPTY known set) -> refuses (reaches the empty-selection branch) ---
+	var empty_sheet: CharacterSheet = CharacterSheet.new()   # knows nothing
+	var empty_inv: Inventory = Inventory.new()
+	menu.open(empty_sheet, empty_inv, [] as Array[StringName])
+	ctx.check(menu.row_count() == 0 and menu.selected_id() == &"" and not menu.craft_selected(),
+		"craft_selected() with an EMPTY known set refuses (no rows, no selection) -- reaches the empty-selection branch",
+		"craft_selected did not refuse on an empty known set (rows=%d, sel=%s, ok=%s)" % [menu.row_count(), str(menu.selected_id()), str(menu.craft_selected())])
+
+	# --- craft() an UNKNOWN / non-listed id THROUGH the menu -> refuses, consumes NOTHING ---
+	var known_sheet: CharacterSheet = CharacterSheet.new()
+	known_sheet.known_recipes.learn(SPIN)
+	var known_inv: Inventory = Inventory.new()
+	known_inv.add_item(FIBER, 5)
+	menu.open(known_sheet, known_inv, [] as Array[StringName])
+	var bogus: bool = menu.craft(&"not_a_real_recipe")
+	ctx.check(not bogus and known_inv.count_of(FIBER) == 5 and known_inv.count_of(CORD) == 0,
+		"menu.craft(unknown id) refuses through the menu -- nothing consumed (fiber stays 5, no cord)",
+		"menu crafted an unknown id (ok=%s, fiber=%d, cord=%d)" % [str(bogus), known_inv.count_of(FIBER), known_inv.count_of(CORD)])
+
+	# --- unaffordable -> affordable FLAG FLIP: not craftable on 2 fiber, craftable once a 3rd arrives (is_craftable
+	# recomputes live off the inventory, so no re-open is needed) ---
+	var flip_sheet: CharacterSheet = CharacterSheet.new()
+	flip_sheet.known_recipes.learn(SPIN)                     # spin needs fiber x3
+	var flip_inv: Inventory = Inventory.new()
+	flip_inv.add_item(FIBER, 2)                              # one short
+	menu.open(flip_sheet, flip_inv, [] as Array[StringName])
+	var before_flip: bool = menu.is_craftable(SPIN)
+	flip_inv.add_item(FIBER, 1)                              # now 3 -- affordable
+	var after_flip: bool = menu.is_craftable(SPIN)
+	ctx.check(not before_flip and after_flip,
+		"craftable FLAG FLIPS with materials: spin_cord not craftable on 2 fiber, craftable once a 3rd is gained",
+		"craftable flag did not flip on gaining materials (before=%s, after=%s)" % [str(before_flip), str(after_flip)])
+
+	holder.queue_free()
+	await ctx.tree.physics_frame
+
+
+## REGRESSIONS (HUD-managed open menu): the HUD now MANAGES the open menu each frame, so it can never get STUCK and
+## its station gate is re-judged against LIVE station presence. Prove (a) walking the forge out of range AUTO-
+## CLOSES the menu and the forge recipe is no longer craftable against the now-empty live tags (the stale-snapshot
+## bypass is gone), and (b) 'f' TOGGLES open -> close -> OPEN across three presses. On the shipped streaming_world.
+func _regressions_hud(ctx: TestContext) -> void:
+	var sw_scene: PackedScene = load("res://world/streaming_world.tscn")
+	if sw_scene == null:
+		ctx.check(false, "", "streaming_world.tscn failed to load (hud regressions)")
+		return
+	var sw: Node2D = sw_scene.instantiate()
+	ctx.tree.root.add_child(sw)
+	var player: Player = sw.get_node("Player") as Player
+	var hud: Hud = sw.get_node("HUD") as Hud
+	player.pickup_radius = 0.0  # no magnet interference
+	await ctx.settle_idle()
+	await ctx.settle_idle()
+
+	# Remote spot, clear of _integration's (8000, 8000) and every other module's region.
+	var spot: Vector2 = Vector2(-8000.0, -8000.0)
+	player.global_position = spot
+	player.character().known_recipes.learn(SPIN)
+	player.character().known_recipes.learn(MASTER)
+	var FIBER: ItemData = load("res://data/fiber.tres")
+	player.inventory.add_item(FIBER, 5)
+	var forge: Station = STATION_SCENE.instantiate() as Station
+	forge.station_tag = &"forge"
+	sw.add_child(forge)
+	forge.global_position = spot + Vector2(20.0, 0.0)
+	await ctx.tree.physics_frame
+	await ctx.settle_idle()
+
+	# 'f' opens the menu beside the forge -- master_cordage craftable (forge in range).
+	player.interact()
+	await ctx.settle_idle()
+	await ctx.settle_idle()
+	var cm: CraftMenu = hud.craft_menu()
+	ctx.check(cm.is_open and cm.is_craftable(MASTER),
+		"[station-leaves] menu OPEN beside the forge with master_cordage craftable (forge in range)",
+		"[station-leaves] menu did not open craftable beside the forge (open=%s, master=%s)" % [str(cm.is_open), str(cm.is_craftable(MASTER))])
+
+	# WALK the forge out of Station.DEFAULT_REACH, then let the HUD run a frame: the menu AUTO-CLOSES (never stuck).
+	player.global_position = spot + Vector2(100000.0, 0.0)
+	await ctx.settle_idle()
+	await ctx.settle_idle()
+	ctx.check(not cm.is_open,
+		"[station-leaves] walking the forge out of range AUTO-CLOSES the menu (HUD re-scans live tags -> empty -> close; never stuck)",
+		"[station-leaves] menu stayed open after walking away (open=%s)" % [str(cm.is_open)])
+
+	# GATE NOT BYPASSABLE: with the live tags now EMPTY, master_cordage is not craftable and a craft refuses -- the
+	# gate reads current station presence, never the stale [&"forge"] snapshot open() captured.
+	cm.set_tags(Station.tags_in_range(player.global_position, Station.DEFAULT_REACH))
+	var stale_craft: bool = cm.craft(MASTER)
+	ctx.check(not cm.is_craftable(MASTER) and not stale_craft and player.inventory.count_of(FIBER) == 5,
+		"[station-leaves] with live tags EMPTY the forge recipe is NOT craftable and craft() refuses -- the stale-snapshot bypass is gone (fiber stays 5)",
+		"[station-leaves] stale forge gate was bypassable (craftable=%s, crafted=%s, fiber=%d)" % [str(cm.is_craftable(MASTER)), str(stale_craft), player.inventory.count_of(FIBER)])
+
+	# --- 'f' TOGGLE open -> close -> OPEN: bring the player back beside the forge and press three times. ---
+	player.global_position = spot
+	await ctx.tree.physics_frame
+	await ctx.settle_idle()
+	player.interact()   # 1st press -> open
+	await ctx.settle_idle()
+	await ctx.settle_idle()
+	var open1: bool = cm.is_open
+	player.interact()   # 2nd press -> close
+	await ctx.settle_idle()
+	await ctx.settle_idle()
+	var closed2: bool = cm.is_open
+	player.interact()   # 3rd press -> reopen
+	await ctx.settle_idle()
+	await ctx.settle_idle()
+	var open3: bool = cm.is_open
+	ctx.check(open1 and not closed2 and open3,
+		"'f' TOGGLES the menu open -> close -> OPEN across three presses (the third press reopens)",
+		"'f' toggle open/close/open failed (open1=%s, closed2=%s, open3=%s)" % [str(open1), str(closed2), str(open3)])
 
 	sw.queue_free()
 	await ctx.settle_idle()

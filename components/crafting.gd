@@ -98,6 +98,42 @@ func craft(recipe_id: StringName, sheet: CharacterSheet, inventory: Inventory, i
 	return true
 
 
+## DRY-RUN of craft() -- WOULD this exact craft succeed RIGHT NOW, without committing? Runs the IDENTICAL guards
+## and the SAME snapshot -> consume -> add-output transaction as craft() (known + materials + station + the output
+## FITS), but ALWAYS restores the snapshot before returning -- so the inventory is byte-identical whether it would
+## have succeeded or not (a net no-op; never commits). Returns craft()'s would-be verdict: true IFF craft() would
+## consume + produce. The craft-menu's is_craftable() delegates here so the "craftable" flag EXACTLY matches
+## craft() acceptance -- no ad-hoc catalog lookup that could show craftable for an UNLEARNED id (recipe() reads the
+## full CATALOG, is_known reads the learned set) or when a full inventory would make craft() refuse the output.
+## Deterministic: pure membership + integer counts over the passed components, snapshot/restore only, no Time/OS/
+## RNG. `in_range_station_tags` mirrors craft() -- defaults to [] so a craft-anywhere dry-run ignores it.
+func would_craft(recipe_id: StringName, sheet: CharacterSheet, inventory: Inventory, in_range_station_tags: Array[StringName] = []) -> bool:
+	if sheet == null or sheet.known_recipes == null or inventory == null:
+		return false
+	# (1) LEARN gate -- an UNKNOWN recipe is never craftable (matches craft()'s is_known chokepoint).
+	if not sheet.known_recipes.is_known(recipe_id):
+		return false
+	# (2) Resolve the shared definition.
+	var recipe: RecipeData = sheet.known_recipes.recipe(recipe_id)
+	if recipe == null:
+		return false
+	# (2.5) STATION gate -- a station-gated recipe is craftable ONLY when its tag is in range.
+	if needs_station(recipe) and not in_range_station_tags.has(recipe.station_tag):
+		return false
+	# (3) MATERIAL precheck -- every distinct input's aggregated total must be present.
+	var needs: Dictionary = _aggregate_inputs(recipe)
+	if not _has_inputs(needs, inventory):
+		return false
+	# (4) OUTPUT-FIT dry-run -- run craft()'s exact snapshot/consume/produce, then ALWAYS roll back. The overflow
+	# tells us whether the output would have fit (a full inventory where consuming the inputs did not free the
+	# needed slot makes craft() refuse); either way the inventory is restored byte-identical (never committed).
+	var snap: Array = inventory.snapshot()
+	_consume(needs, inventory)
+	var overflow: int = inventory.add_item(recipe.output_item, recipe.output_count)
+	inventory.restore(snap)
+	return overflow == 0
+
+
 ## Aggregate a recipe's parallel input rows (input_items[i] / input_counts[i]) into a per-item TOTAL:
 ## ItemData -> summed count. Summing FIRST is what makes a recipe that lists the SAME item twice correct --
 ## the precheck then compares the SUM (not the max single row) to count_of, and the consume removes the SUM

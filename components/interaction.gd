@@ -138,4 +138,4 @@ func _find_nearest(player: Node2D) -> Node:
 			best = node
 	return best
 
-# Verified against: Godot 4.7.1 (2026-07-18)
+# Verified against: Godot 4.7.1 (2026-07-19)
