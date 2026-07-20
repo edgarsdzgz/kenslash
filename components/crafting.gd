@@ -28,8 +28,12 @@ extends RefCounted
 ## inventory FIRST, then each store in the passed order, taking only the shortfall from each. The transaction is
 ## ATOMIC ACROSS ALL touched stores: the inventory AND every store are snapshotted before consuming, and on any
 ## output-overflow EVERY snapshot is restored, so a failed craft leaves the inventory AND every container byte-
-## identical (consuming nothing from any source). `extra_stores` DEFAULTS to [] so every Epic 1 inventory-only
-## call is byte-identical. Weight is respected the NORMAL way: removing inputs and adding the output re-flow
+## identical (consuming nothing from any source). This atomic/no-dupe guarantee is UNCONDITIONAL: each public
+## entry first _normalize_stores() the extra_stores -- dropping any entry that IS the personal `inventory` (an
+## alias would otherwise double-count in availability and double-drain on consume) and de-duplicating repeated
+## Inventory refs (keep first, drop nulls) -- so snapshot/consume/restore always operate on ONE set of DISTINCT
+## non-alias stores. For the normal distinct-store case normalization is a no-op (byte-identical). `extra_stores`
+## DEFAULTS to [] so every Epic 1 inventory-only call is byte-identical. Weight is respected the NORMAL way: removing inputs and adding the output re-flow
 ## through each Inventory's own remove_item/add_item, so total_weight()/encumbrance update exactly as for any
 ## pickup; this component invents NO hard weight block (the inventory enforces none on add -- pickup never
 ## blocks, so neither does a craft).
@@ -46,12 +50,14 @@ extends RefCounted
 ## CRAFT-FROM-STORAGE (Epic 2 Part 3.1): availability is aggregated across the player's `inventory` AND every
 ## `extra_store` (the in-range container stores ui/hud.gd feeds in). `extra_stores` DEFAULTS to [] so an
 ## inventory-only query is byte-identical to before; when a nearby chest holds the shortfall, this reports true
-## and the recipe becomes craftable. A null entry in extra_stores is skipped. Still a MATERIAL-ONLY predicate
-## (no learn/station/output-fit) -- craft() owns those.
+## and the recipe becomes craftable. The list is _normalize_stores()d first so a store that ALIASES `inventory`
+## or a DUPLICATE ref can never phantom-inflate the aggregate (a null entry is dropped) -- the availability is
+## always over one set of distinct non-alias sources. Still a MATERIAL-ONLY predicate (no learn/station/output-
+## fit) -- craft() owns those.
 func has_materials_for(recipe: RecipeData, inventory: Inventory, extra_stores: Array[Inventory] = []) -> bool:
 	if recipe == null or inventory == null:
 		return false
-	return _has_inputs(_aggregate_inputs(recipe), inventory, extra_stores)
+	return _has_inputs(_aggregate_inputs(recipe), inventory, _normalize_stores(inventory, extra_stores))
 
 
 ## Execute one craft of `recipe_id` for `sheet`, pulling inputs from `inventory`. ATOMIC + guarded:
@@ -77,14 +83,20 @@ func has_materials_for(recipe: RecipeData, inventory: Inventory, extra_stores: A
 ##
 ## CRAFT-FROM-STORAGE (Epic 2 Part 3.1): `extra_stores` is the in-range container stores (ui/hud.gd collects
 ## them via Interaction.containers_in_range) and DEFAULTS to [] so an inventory-only craft is byte-identical to
-## Epic 1. AVAILABILITY is aggregated across the inventory + every extra_store; CONSUME is in a STABLE order --
-## the personal INVENTORY drained FIRST, then each extra_store in the passed order until each input's need is
-## met. ATOMIC ACROSS ALL touched stores: the inventory AND every extra_store are snapshotted before consuming,
+## Epic 1. The list is _normalize_stores()d ONCE up front (alias-to-`inventory` and duplicate refs dropped, nulls
+## dropped) so the availability precheck and the snapshot/consume/restore all span the SAME set of distinct non-
+## alias stores -- the atomic/no-dupe guarantee holds UNCONDITIONALLY, not just for a caller that happens to pass
+## distinct stores. AVAILABILITY is aggregated across the inventory + every store; CONSUME is in a STABLE order --
+## the personal INVENTORY drained FIRST, then each store in the passed order until each input's need is
+## met. ATOMIC ACROSS ALL touched stores: the inventory AND every store are snapshotted before consuming,
 ## and on output-overflow EVERY snapshot is restored -- a failed craft leaves the inventory AND every container
 ## byte-identical. The output is always added to the personal `inventory`.
 func craft(recipe_id: StringName, sheet: CharacterSheet, inventory: Inventory, in_range_station_tags: Array[StringName] = [], extra_stores: Array[Inventory] = []) -> bool:
 	if sheet == null or sheet.known_recipes == null or inventory == null:
 		return false
+	# NORMALIZE the stores ONCE (drop alias-to-inventory / duplicate / null) so consume/snapshot/restore below all
+	# operate on ONE set of distinct non-alias sources -- makes the atomic/no-dupe guarantee unconditional.
+	var stores: Array[Inventory] = _normalize_stores(inventory, extra_stores)
 	# (1) LEARN gate -- an UNKNOWN recipe never crafts (Part 3.1 known set).
 	if not sheet.known_recipes.is_known(recipe_id):
 		return false
@@ -100,19 +112,19 @@ func craft(recipe_id: StringName, sheet: CharacterSheet, inventory: Inventory, i
 	# (3) ATOMIC PRECHECK -- aggregate duplicate input rows, then verify every DISTINCT input's TOTAL is present
 	# ACROSS the inventory + extra_stores BEFORE removing any. Bail with nothing consumed.
 	var needs: Dictionary = _aggregate_inputs(recipe)
-	if not _has_inputs(needs, inventory, extra_stores):
+	if not _has_inputs(needs, inventory, stores):
 		return false
-	# (4) TRANSACTIONAL across ALL touched stores: snapshot the inventory AND every extra_store, consume the exact
+	# (4) TRANSACTIONAL across ALL touched stores: snapshot the inventory AND every store, consume the exact
 	# per-item totals (personal first, then the stores in order), produce the output into the inventory. If the
 	# output does not fully fit (a full inventory), roll back EVERY snapshot so the craft consumes NOTHING from
 	# ANY store and produces NOTHING. We do NOT precheck output space first: consuming can free the needed slot.
 	var snap: Array = inventory.snapshot()
-	var extra_snaps: Array = _snapshot_stores(extra_stores)
-	_consume(needs, inventory, extra_stores)
+	var extra_snaps: Array = _snapshot_stores(stores)
+	_consume(needs, inventory, stores)
 	var overflow: int = inventory.add_item(recipe.output_item, recipe.output_count)
 	if overflow > 0:
 		inventory.restore(snap)
-		_restore_stores(extra_stores, extra_snaps)
+		_restore_stores(stores, extra_snaps)
 		return false
 	return true
 
@@ -128,13 +140,17 @@ func craft(recipe_id: StringName, sheet: CharacterSheet, inventory: Inventory, i
 ## RNG. `in_range_station_tags` mirrors craft() -- defaults to [] so a craft-anywhere dry-run ignores it.
 ##
 ## CRAFT-FROM-STORAGE (Epic 2 Part 3.1): `extra_stores` mirrors craft() -- defaults to [] so an inventory-only
-## dry-run is byte-identical. When passed, availability aggregates across the inventory + stores and the
-## snapshot/consume/restore spans the inventory AND every extra_store, so a full-inventory dry-run leaves EVERY
+## dry-run is byte-identical. When passed, it is _normalize_stores()d ONCE (alias-to-`inventory`/duplicate/null
+## dropped) exactly as craft() does, so the dry-run's verdict matches craft() even for a caller that passes an
+## aliasing or duplicate store; availability aggregates across the inventory + the normalized stores and the
+## snapshot/consume/restore spans the inventory AND every store, so a full-inventory dry-run leaves EVERY
 ## store byte-identical (a net no-op) exactly as craft() would leave them on its overflow rollback. This is what
 ## makes CraftMenu.is_craftable light up from a nearby chest while committing nothing.
 func would_craft(recipe_id: StringName, sheet: CharacterSheet, inventory: Inventory, in_range_station_tags: Array[StringName] = [], extra_stores: Array[Inventory] = []) -> bool:
 	if sheet == null or sheet.known_recipes == null or inventory == null:
 		return false
+	# NORMALIZE identically to craft() so the dry-run verdict tracks craft() even under an aliasing/duplicate store.
+	var stores: Array[Inventory] = _normalize_stores(inventory, extra_stores)
 	# (1) LEARN gate -- an UNKNOWN recipe is never craftable (matches craft()'s is_known chokepoint).
 	if not sheet.known_recipes.is_known(recipe_id):
 		return false
@@ -147,18 +163,18 @@ func would_craft(recipe_id: StringName, sheet: CharacterSheet, inventory: Invent
 		return false
 	# (3) MATERIAL precheck -- every distinct input's aggregated total must be present across inventory + stores.
 	var needs: Dictionary = _aggregate_inputs(recipe)
-	if not _has_inputs(needs, inventory, extra_stores):
+	if not _has_inputs(needs, inventory, stores):
 		return false
 	# (4) OUTPUT-FIT dry-run -- run craft()'s exact multi-store snapshot/consume/produce, then ALWAYS roll back
 	# EVERY store. The overflow tells us whether the output would have fit (a full inventory where consuming the
-	# inputs did not free the needed slot makes craft() refuse); either way the inventory AND every extra_store
+	# inputs did not free the needed slot makes craft() refuse); either way the inventory AND every store
 	# are restored byte-identical (never committed).
 	var snap: Array = inventory.snapshot()
-	var extra_snaps: Array = _snapshot_stores(extra_stores)
-	_consume(needs, inventory, extra_stores)
+	var extra_snaps: Array = _snapshot_stores(stores)
+	_consume(needs, inventory, stores)
 	var overflow: int = inventory.add_item(recipe.output_item, recipe.output_count)
 	inventory.restore(snap)
-	_restore_stores(extra_stores, extra_snaps)
+	_restore_stores(stores, extra_snaps)
 	return overflow == 0
 
 
@@ -194,6 +210,26 @@ func _has_inputs(needs: Dictionary, inventory: Inventory, extra_stores: Array[In
 		if _available(item, inventory, extra_stores) < int(needs[item]):
 			return false
 	return true
+
+
+## Normalize `extra_stores` into the set the transaction may safely touch: DROP any entry that IS the personal
+## `inventory` (an alias would double-count in _available and double-drain in _consume, since the personal
+## inventory is already the FIRST source), DROP duplicate Inventory refs (keep the FIRST occurrence -- a repeated
+## chest snapshotted/consumed/restored twice would phantom-inflate availability and mis-restore), and DROP nulls.
+## Called ONCE at the top of every public entry (has_materials_for/would_craft/craft) so _available/_consume/
+## _snapshot_stores/_restore_stores all see the SAME clean set. For the normal DISTINCT-store case this returns a
+## copy with identical membership/order, so behavior is byte-identical -- it only ever REMOVES the pathological
+## alias/dup/null entries that would otherwise break the unconditional atomic/no-dupe guarantee. Pure; no Time/OS/
+## RNG (order is preserved from the input). Returns a fresh typed Array[Inventory].
+func _normalize_stores(inventory: Inventory, extra_stores: Array[Inventory]) -> Array[Inventory]:
+	var out: Array[Inventory] = []
+	for store: Inventory in extra_stores:
+		if store == null or store == inventory:
+			continue
+		if out.has(store):
+			continue
+		out.append(store)
+	return out
 
 
 ## Total count of `item` held across the personal inventory + every extra_store (the aggregate craft-from-storage

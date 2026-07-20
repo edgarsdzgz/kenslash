@@ -2225,4 +2225,16 @@ Greppable log of bugs/seams intentionally LEFT for a later pass, so they are not
   how mineral integrity / enemy hp / drops already behave; the disk-save milestone must address all uniformly
   (not a container-specific defect).
 
+- DEFERRED (Epic 2 Phase 3, ui/hud.gd ~410): HudPanel base extraction -- hud.gd (~410) drives 2 panels (craft
+  menu + container) + the craft-store scan; extract a shared HudPanel/HudPanels helper WHEN A 3RD PANEL appears
+  (the documented trigger), watching the two near-duplicate `_refresh_*_panel` drivers that would seed it.
+
+- DEFERRED (Epic 2 Phase 3, MaterialCost extraction): builder.gd's `_aggregate_cost`/`_has_cost`/`_consume_cost`
+  and crafting.gd's `_aggregate_inputs`/`_has_inputs`/`_consume` have DIVERGED (single-store vs multi-store) -- a
+  future shared MaterialCost helper must be the MULTI-STORE form (it subsumes the single-store one, not vice-versa).
+
+- DEFERRED (Epic 2 Phase 3, MP determinism): craft-from-storage consume order walks `containers_in_range`'s
+  get_nodes_in_group order -- deterministic within a run and per-machine ONLY if containers register in the same
+  order (placement deltas replay per-chunk today); the disk-save / MP milestone must confirm this invariant.
+
 Verified against: Godot 4.7.1 (2026-07-20)
