@@ -22,7 +22,9 @@ class_name TestCrafting extends RefCounted
 ##     the output then fits and the craft SUCCEEDS (no pre-consume space precheck);
 ##   * DUPLICATE-INPUT aggregation: a recipe listing the same item twice requires + consumes the SUM of the rows
 ##     (not the max single row), refusing when stock is >= the largest row but < the sum;
-##   * STATION-TAG inert: master_cordage's station_tag (&"forge") is ignored in Phase 3 -- it still crafts.
+##   * STATION-TAG gate (Part 4.1): master_cordage (station_tag &"forge") REFUSES without a forge tag in range
+##     (nothing consumed) and SUCCEEDS when &"forge" is in range -- while the craft-anywhere spin_cord is
+##     unaffected by the default-empty tag list.
 ## Fully standalone: pure component instances, no player/scene wiring. Registered in tests/smoke_slash.gd after
 ## TestRecipes (the learn-model suite this craft-execution suite builds on).
 
@@ -45,7 +47,7 @@ func run(ctx: TestContext) -> void:
 	_output_merges_onto_partial(ctx)
 	_full_inventory_transactional(ctx)
 	_duplicate_input_aggregation(ctx)
-	_station_tag_inert(ctx)
+	_station_tag_gate(ctx)
 
 
 ## KNOWN single-input recipe consumes the EXACT inputs, adds the exact output, keeps the surplus, and updates
@@ -319,23 +321,48 @@ func _duplicate_input_aggregation(ctx: TestContext) -> void:
 		"duplicate-input exact case wrong (has=%s, craft=%s, fiber=%d, cord=%d)" % [str(ok_has), str(ok_craft), inv_ok.count_of(FIBER), inv_ok.count_of(CORD)])
 
 
-## STATION-TAG inert (Phase 3). master_cordage carries station_tag &"forge", but no station exists yet (Phase 4
-## adds the in-range gate), so the tag must be IGNORED at craft time. Learned the real way through the sheet
-## (min_level 3 met, blueprint cost 3 paid), then crafts end to end: fiber x5 -> cord x3.
-func _station_tag_inert(ctx: TestContext) -> void:
+## STATION-TAG gate (Part 4.1). master_cordage carries station_tag &"forge", now ACTIVE: it crafts ONLY when the
+## &"forge" tag is in `in_range_station_tags`. Learned the real way through the sheet (min_level 3 met, blueprint
+## cost 3 paid), then: (A) with NO station tag in range (the default-empty list) it REFUSES -- fiber untouched,
+## no cord; (B) with &"forge" in range it crafts end to end -- fiber x5 -> cord x3. A pure tag-list test (no
+## Station node needed here; the node + Station.tags_in_range are exercised end to end in tests/test_station.gd).
+## Also re-asserts a craft-anywhere recipe (spin_cord, station_tag "") is UNAFFECTED by the default-empty param.
+func _station_tag_gate(ctx: TestContext) -> void:
 	var FIBER: ItemData = load("res://data/fiber.tres")
 	var CORD: ItemData = load("res://data/cord.tres")
 	var sheet: CharacterSheet = CharacterSheet.new()
 	sheet.progression.blueprint_points = 3                # master_cordage costs 3
 	sheet.progression.level = 3                           # meet min_level 3 (as the recipe tests do)
 	var learned: bool = sheet.learn_recipe(MASTER)
-	var inv: Inventory = Inventory.new()
-	inv.add_item(FIBER, 5)
 	var craft: Crafting = Crafting.new()
 
-	var ok: bool = craft.craft(MASTER, sheet, inv)        # station_tag &"forge" is inert in Phase 3
-	ctx.check(learned and ok and inv.count_of(FIBER) == 0 and inv.count_of(CORD) == 3,
-		"master_cordage (station_tag &\"forge\") still crafts in Phase 3 -- the tag is ignored: fiber 5 -> 0, cord 0 -> 3",
-		"station-tagged recipe did not craft inertly (learned=%s, ok=%s, fiber=%d, cord=%d)" % [str(learned), str(ok), inv.count_of(FIBER), inv.count_of(CORD)])
+	# Case A -- NO forge in range (the craft-anywhere default list []): the station-gated recipe REFUSES with
+	# nothing consumed, even though the mats are present and it is learned (the STATION gate blocks it).
+	var inv_a: Inventory = Inventory.new()
+	inv_a.add_item(FIBER, 5)
+	var a_ok: bool = craft.craft(MASTER, sheet, inv_a)    # default in_range_station_tags == [] -> no forge
+	ctx.check(learned and not a_ok and inv_a.count_of(FIBER) == 5 and inv_a.count_of(CORD) == 0,
+		"master_cordage (station_tag &\"forge\") REFUSES with NO forge in range -- consumes nothing (fiber stays 5, no cord)",
+		"station-gated recipe crafted without a station (learned=%s, ok=%s, fiber=%d, cord=%d)" % [str(learned), str(a_ok), inv_a.count_of(FIBER), inv_a.count_of(CORD)])
+
+	# Case B -- &"forge" IS in range: the same recipe now crafts end to end (fiber 5 -> 0, cord 0 -> 3).
+	var inv_b: Inventory = Inventory.new()
+	inv_b.add_item(FIBER, 5)
+	var forge_tags: Array[StringName] = [&"forge"]
+	var b_ok: bool = craft.craft(MASTER, sheet, inv_b, forge_tags)
+	ctx.check(b_ok and inv_b.count_of(FIBER) == 0 and inv_b.count_of(CORD) == 3,
+		"master_cordage SUCCEEDS with &\"forge\" in range: fiber 5 -> 0, cord 0 -> 3 (the station gate opens)",
+		"station-gated recipe did not craft in range (ok=%s, fiber=%d, cord=%d)" % [str(b_ok), inv_b.count_of(FIBER), inv_b.count_of(CORD)])
+
+	# Case C -- a craft-anywhere recipe (spin_cord, station_tag "") is UNAFFECTED by the default-empty tag list:
+	# it still crafts with NO station present, proving the gate only fences station-tagged recipes.
+	var sheet_c: CharacterSheet = CharacterSheet.new()
+	sheet_c.known_recipes.learn(SPIN)
+	var inv_c: Inventory = Inventory.new()
+	inv_c.add_item(FIBER, 3)
+	var c_ok: bool = craft.craft(SPIN, sheet_c, inv_c)    # station_tag "" -> gate ignored, default [] fine
+	ctx.check(c_ok and inv_c.count_of(FIBER) == 0 and inv_c.count_of(CORD) == 1,
+		"craft-anywhere spin_cord (station_tag \"\") still crafts with NO station in range -- gate only fences station-tagged recipes",
+		"craft-anywhere recipe was wrongly station-gated (ok=%s, fiber=%d, cord=%d)" % [str(c_ok), inv_c.count_of(FIBER), inv_c.count_of(CORD)])
 
 # Verified against: Godot 4.7.1 (2026-07-19)

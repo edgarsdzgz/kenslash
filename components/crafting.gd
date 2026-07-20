@@ -49,6 +49,10 @@ func has_materials_for(recipe: RecipeData, inventory: Inventory) -> bool:
 ## Execute one craft of `recipe_id` for `sheet`, pulling inputs from `inventory`. ATOMIC + guarded:
 ##   (1) the id must be KNOWN on the sheet's KnownRecipes (Part 3.1 learn gate) -- else refuse;
 ##   (2) resolve the RecipeData; a missing definition refuses;
+##   (2.5) STATION gate (Part 4.1): if the recipe needs a station (station_tag != "") and that tag is NOT in
+##       `in_range_station_tags`, refuse -- consuming NOTHING. Craft-anywhere recipes (station_tag == "") ignore
+##       the param entirely. Checked BEFORE the snapshot/consume so atomicity holds (a station-blocked craft
+##       touches the inventory not at all).
 ##   (3) AGGREGATE the input rows by item (duplicate rows summed) and PRECHECK every DISTINCT input is present
 ##       in its TOTAL required count (_has_inputs) -- else refuse, consuming NOTHING;
 ##   (4) SNAPSHOT the inventory, remove each distinct input's total, add output_item x output_count, and if the
@@ -56,8 +60,13 @@ func has_materials_for(recipe: RecipeData, inventory: Inventory) -> bool:
 ##       never consume the inputs while losing the output.
 ## Returns true IFF the craft ran (inputs consumed + output produced). On ANY failure it returns false and the
 ## inventory is byte-identical to before (no partial consumption). Deterministic integer/membership work, no
-## Time/OS/RNG. (Phase 4 adds a station_tag in-range gate BEFORE (3); this part is station-independent.)
-func craft(recipe_id: StringName, sheet: CharacterSheet, inventory: Inventory) -> bool:
+## Time/OS/RNG.
+##
+## `in_range_station_tags` is the plain list of station tags currently near the player (world/station.gd's
+## Station.tags_in_range collects it); it DEFAULTS to [] so every existing craft-anywhere call site is
+## unchanged and only ever matters for a station-gated recipe. Crafting stays decoupled from station NODES --
+## it sees only this passed tag list, never a Station.
+func craft(recipe_id: StringName, sheet: CharacterSheet, inventory: Inventory, in_range_station_tags: Array[StringName] = []) -> bool:
 	if sheet == null or sheet.known_recipes == null or inventory == null:
 		return false
 	# (1) LEARN gate -- an UNKNOWN recipe never crafts (Part 3.1 known set).
@@ -66,6 +75,11 @@ func craft(recipe_id: StringName, sheet: CharacterSheet, inventory: Inventory) -
 	# (2) Resolve the shared definition (its I/O counts).
 	var recipe: RecipeData = sheet.known_recipes.recipe(recipe_id)
 	if recipe == null:
+		return false
+	# (2.5) STATION gate (Part 4.1) -- a station-gated recipe crafts ONLY when its tag is in range. Placed BEFORE
+	# the precheck/snapshot so a station-blocked craft consumes NOTHING (atomicity). Craft-anywhere recipes fall
+	# straight through (needs_station false).
+	if needs_station(recipe) and not in_range_station_tags.has(recipe.station_tag):
 		return false
 	# (3) ATOMIC PRECHECK -- aggregate duplicate input rows, then verify every DISTINCT input's TOTAL is present
 	# BEFORE removing any. Bail with nothing consumed.
@@ -127,5 +141,13 @@ func _has_inputs(needs: Dictionary, inventory: Inventory) -> bool:
 func _consume(needs: Dictionary, inventory: Inventory) -> void:
 	for item: ItemData in needs:
 		inventory.remove_item(item, int(needs[item]))
+
+
+## Whether `recipe` requires a crafting station to EXECUTE -- true IFF it carries a non-empty station_tag
+## (RecipeData). A craft-anywhere recipe ("" tag) returns false and is never gated. Pure read; a null recipe ->
+## false. Exposed (not inlined) so a future craft UI can grey out a recipe the player cannot craft here without
+## re-deriving the rule, mirroring how has_materials_for exposes the material predicate.
+func needs_station(recipe: RecipeData) -> bool:
+	return recipe != null and recipe.station_tag != &""
 
 # Verified against: Godot 4.7.1 (2026-07-19)

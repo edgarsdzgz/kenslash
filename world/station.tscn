@@ -1,0 +1,11 @@
+[gd_scene load_steps=2 format=4]
+
+[ext_resource type="Script" path="res://world/station.gd" id="1_station"]
+
+[node name="Station" type="Node2D"]
+script = ExtResource("1_station")
+station_tag = &"forge"
+
+[node name="Body" type="Polygon2D" parent="."]
+color = Color(0.55, 0.42, 0.28, 1)
+polygon = PackedVector2Array(-18, -8, 18, -8, 18, 8, -18, 8)
