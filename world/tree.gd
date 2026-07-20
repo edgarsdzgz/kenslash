@@ -65,7 +65,9 @@ func _fall_break_and_free() -> void:
 	if body_shape != null:
 		body_shape.set_deferred("disabled", true)
 	var fall_dir: float = 1.0
-	var p: Node2D = get_tree().get_first_node_in_group("player") as Node2D
+	# Player to our LEFT -> fall right (+90deg); to our RIGHT -> fall left. Resolved through the shared base
+	# _local_player() ("player"-group) helper (Player is-a Node2D, so global_position reads unchanged).
+	var p: Player = _local_player()
 	if p != null and p.global_position.x > global_position.x:
 		fall_dir = -1.0
 	var tween: Tween = create_tween()

@@ -90,27 +90,34 @@ func _spawn_drop(item: ItemData, at: Vector2) -> void:
 	drop.set_deferred("global_position", at)
 
 
+## The LOCAL player, resolved through the "player" group -- the SAME group the pickup magnet + enemy AI use,
+## so the body holds no hard path to the player. Null-safe (cast): a headless harvest with no player in the
+## tree returns null, which every caller guards. ONE home for the group-resolve-and-cast so the harvest-XP
+## award, the harvest-yield bonus, and the tree's fall-direction lookup share it instead of repeating it.
+## MP: this is the single-player LOCAL player; per-harvester attribution is an Epic 8 seam.
+func _local_player() -> Player:
+	return get_tree().get_first_node_in_group("player") as Player
+
+
 ## Award `amount` XP to the local player's Progression for a harvest on this body (plan-epic1-parts.md
-## Part 1.2). Resolved through the "player" group -- the SAME group the pickup magnet + enemy AI use --
-## so the body holds no hard path to the player; a null player (a headless harvest with no player in the
-## tree) is a guarded no-op. The Rock calls this per affecting mine, the Tree once on fell -- each with
-## its own labelled TUNING constant. Deterministic: `amount` is an integer const, no Time/OS/RNG. MP:
-## single-player awards the LOCAL player; per-killer/per-harvester attribution is an Epic 8 seam.
+## Part 1.2). Resolved through the "player" group via _local_player() -- so the body holds no hard path to
+## the player; a null player (a headless harvest with no player in the tree) is a guarded no-op. The Rock
+## calls this per affecting mine, the Tree once on fell -- each with its own labelled TUNING constant.
+## Deterministic: `amount` is an integer const, no Time/OS/RNG. MP: single-player awards the LOCAL player.
 func _award_harvest_xp(amount: int) -> void:
-	var p: Player = get_tree().get_first_node_in_group("player") as Player
+	var p: Player = _local_player()
 	if p != null:
 		p.award_xp(amount)
 
 
 ## The local player's HARVEST_YIELD talent bonus for a harvest on this body (plan-epic1-parts.md Part 2.2b):
-## the EXTRA drop count a fell/mine adds. Resolved through the SAME "player" group as _award_harvest_xp -- so
-## the body holds no hard path to the player -- and read off its portable CharacterSheet. A null player (a
-## headless harvest with no player in the tree) is a guarded 0. Deterministic integer (CharacterSheet sums
-## the unlocked talents' magnitudes), no Time/OS/RNG. The Tree adds this to its fell burst, the Rock to its
-## per-mine chip -- so a felled tree / mined rock yields MORE for a player with the forager talent. MP: this
-## is the LOCAL player; per-harvester attribution is an Epic 8 seam, exactly like the XP award.
+## the EXTRA drop count a fell/mine adds. Resolved through the SAME _local_player() ("player"-group) helper as
+## _award_harvest_xp -- so the body holds no hard path to the player -- and read off its portable
+## CharacterSheet. A null player (a headless harvest with no player in the tree) is a guarded 0. Deterministic
+## integer (CharacterSheet sums the unlocked talents' magnitudes), no Time/OS/RNG. The Tree adds this to its
+## fell burst, the Rock to its per-mine chip -- so a felled tree / mined rock yields MORE for a forager player.
 func _harvest_yield_bonus() -> int:
-	var p: Player = get_tree().get_first_node_in_group("player") as Player
+	var p: Player = _local_player()
 	if p != null:
 		return p.character().harvest_yield_bonus()
 	return 0

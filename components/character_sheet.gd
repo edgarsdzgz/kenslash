@@ -27,6 +27,7 @@ var progression: Progression = null
 ## delegating API below does not surface. The perk EFFECTS are summed off this set (melee/harvest bonuses).
 var talents: Talents = null
 
+## --- TUNING (placeholders; exact allowance is for later balancing) --------------------------------
 ## RESPEC allowance (design-multiplayer.md Icarus talents): a SMALL, finite number of un-picks the character
 ## may perform. Each respec() spends one and refunds the talent's cost; when this hits 0 no further respec is
 ## allowed (picks become permanent). A const start, tuning like the Progression rates -- integer, no RNG.

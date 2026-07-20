@@ -12,11 +12,13 @@ class_name TestTalents extends RefCounted
 ## data model + the unlock gate. Fully standalone: pure component instances, no player wiring (Part 2.2
 ## wires it onto the player). Registered in tests/smoke_slash.gd, mirroring tests/test_progression.gd.
 
-## The four authored tree ids (data/talents/*.tres). keen_edge is the prereq node (requires blade_focus).
-const BLADE: StringName = &"blade_focus"    # root, cost 1, MELEE_DAMAGE +1
-const KEEN: StringName = &"keen_edge"        # cost 2, prereq [blade_focus], MELEE_DAMAGE +1
-const FORAGER: StringName = &"forager"       # root, cost 1, HARVEST_YIELD +1
-const HEAVY: StringName = &"heavy_hitter"    # root, cost 2, MELEE_DAMAGE +2
+## The five authored tree ids (data/talents/*.tres). blade_focus -> keen_edge -> master_strike is the
+## 2-deep prereq chain (keen requires blade; master requires keen); forager + heavy_hitter are roots.
+const BLADE: StringName = &"blade_focus"        # root, cost 1, MELEE_DAMAGE +1
+const KEEN: StringName = &"keen_edge"           # cost 2, prereq [blade_focus], MELEE_DAMAGE +1
+const MASTER: StringName = &"master_strike"     # cost 3, prereq [keen_edge], MELEE_DAMAGE +2 (third tier)
+const FORAGER: StringName = &"forager"          # root, cost 1, HARVEST_YIELD +1
+const HEAVY: StringName = &"heavy_hitter"       # root, cost 2, MELEE_DAMAGE +2
 
 ## Part 2.2b scene legs: a controlled player proves the perk SUMS reach real gameplay (a swing's atk, a
 ## harvest's drop count). Remote coord, clear of every other self-contained module (progression 52000,
@@ -34,8 +36,14 @@ func run(ctx: TestContext) -> void:
 	_prereq_and_set_tests(ctx)
 	# Part 2.2b: the CharacterSheet spend/respec chokepoint, then the two perk effects on real gameplay.
 	_sheet_spend_and_respec_tests(ctx)
+	# 2-deep prereq chain (blade -> keen -> master) + transitive orphan-gate + multi-order respec (FIX 3).
+	_deep_chain_respec_tests(ctx)
 	await _melee_damage_leg(ctx)
 	await _harvest_yield_leg(ctx)
+	# Equip-mid-swing corruption gate + mid-swing cancel + non-sword swing bonus (FIX 1/2).
+	await _equip_gate_leg(ctx)
+	await _cancel_clears_bonus_leg(ctx)
+	await _nonsword_bonus_leg(ctx)
 
 
 ## Tree-shape + fresh-state tests -- the authored nodes are present at the documented costs/prereqs and a
@@ -43,17 +51,20 @@ func run(ctx: TestContext) -> void:
 func _tree_tests(ctx: TestContext) -> void:
 	var t: Talents = Talents.new()
 
-	# The authored tree has all four nodes and no strays.
-	ctx.check(t.tree().size() == 4 and t.has_talent(BLADE) and t.has_talent(KEEN)
+	# The authored tree has all five nodes and no strays.
+	ctx.check(t.tree().size() == 5 and t.has_talent(BLADE) and t.has_talent(KEEN) and t.has_talent(MASTER)
 			and t.has_talent(FORAGER) and t.has_talent(HEAVY),
-		"talent tree loads the 4 authored nodes (blade_focus, keen_edge, forager, heavy_hitter)",
+		"talent tree loads the 5 authored nodes (blade_focus, keen_edge, master_strike, forager, heavy_hitter)",
 		"talent tree missing a node or wrong size (size %d)" % t.tree().size())
 
-	# Costs + the one prereq edge match the authored .tres (pins the tree the test reasons about).
+	# Costs + the two prereq edges match the authored .tres (pins the tree the test reasons about).
 	var keen: TalentData = t.get_talent(KEEN)
-	ctx.check(t.get_talent(BLADE).cost == 1 and keen.cost == 2 and t.get_talent(FORAGER).cost == 1
-			and t.get_talent(HEAVY).cost == 2 and keen.prereqs.size() == 1 and keen.prereqs[0] == BLADE,
-		"authored costs (blade 1, keen 2, forager 1, heavy 2) and keen_edge's prereq (blade_focus) match",
+	var master: TalentData = t.get_talent(MASTER)
+	ctx.check(t.get_talent(BLADE).cost == 1 and keen.cost == 2 and master.cost == 3
+			and t.get_talent(FORAGER).cost == 1 and t.get_talent(HEAVY).cost == 2
+			and keen.prereqs.size() == 1 and keen.prereqs[0] == BLADE
+			and master.prereqs.size() == 1 and master.prereqs[0] == KEEN,
+		"authored costs (blade 1, keen 2, master 3, forager 1, heavy 2) and the chain prereqs (keen<-blade, master<-keen) match",
 		"authored tree costs/prereqs drifted from the .tres")
 
 	# Unknown id -> no node.
@@ -216,6 +227,74 @@ func _sheet_spend_and_respec_tests(ctx: TestContext) -> void:
 		"respec was allowed with 0 respec_points")
 
 
+## FIX 3 -- a 2-DEEP prereq chain (blade_focus -> keen_edge -> master_strike) exercises multi-level unlock
+## ordering, the TRANSITIVE orphan-gate (a MID node cannot be respecced while its descendant is unlocked),
+## multi-ORDER respec (leaf, then mid, then root -- each refunds exactly), and an INDEPENDENT root respecced
+## on its own. Pure CharacterSheet (a RefCounted needs no scene). Deterministic integer spend/refund.
+func _deep_chain_respec_tests(ctx: TestContext) -> void:
+	var s: CharacterSheet = CharacterSheet.new()
+	s.progression.talent_points = 10
+
+	# master_strike is gated on keen_edge (its prereq), which is gated on blade_focus -- so it CANNOT unlock
+	# before the chain below it, no matter the points. Deducts nothing, node stays locked.
+	ctx.check(not s.unlock_talent(MASTER) and not s.talents.is_unlocked(MASTER)
+			and s.progression.talent_points == 10,
+		"master_strike cannot unlock while its prereq chain (keen_edge/blade_focus) is locked -- deducts nothing",
+		"master_strike wrongly unlocked / spent with an unmet 2-deep prereq")
+
+	# Unlock the chain IN ORDER: blade (1) -> keen (2) -> master (3). Points 10 -> 9 -> 7 -> 4; the MELEE sum
+	# climbs +1 -> +2 -> +4 (blade +1, keen +1, master +2).
+	var c1: bool = s.unlock_talent(BLADE)
+	var c2: bool = s.unlock_talent(KEEN)
+	var c3: bool = s.unlock_talent(MASTER)
+	ctx.check(c1 and c2 and c3 and s.progression.talent_points == 4 and s.melee_damage_bonus() == 4
+			and s.talents.is_unlocked(BLADE) and s.talents.is_unlocked(KEEN) and s.talents.is_unlocked(MASTER),
+		"the 2-deep chain unlocks IN ORDER (blade -> keen -> master), points 10 -> 4, melee sum climbs to +4",
+		"the 2-deep chain did not unlock in order / wrong points/bonus (pts %d, bonus %d)" % [s.progression.talent_points, s.melee_damage_bonus()])
+
+	# TRANSITIVE orphan-gate: with master_strike unlocked, the MID node keen_edge cannot be respecced (it is
+	# still a prereq of the unlocked master), and neither can the ROOT blade_focus (prereq of keen) -- both
+	# refused, nothing refunded, no respec spent.
+	var pts_before: int = s.progression.talent_points        # 4
+	var respec_before: int = s.respec_points                  # RESPEC_START (3)
+	ctx.check(not s.respec(KEEN) and not s.respec(BLADE)
+			and s.talents.is_unlocked(KEEN) and s.talents.is_unlocked(BLADE)
+			and s.progression.talent_points == pts_before and s.respec_points == respec_before,
+		"respec REFUSED for the mid node keen_edge AND the root blade_focus while master_strike depends on them (transitive orphan-gate)",
+		"a prereq-of-unlocked node was respeccable in the 2-deep chain (pts %d, respec %d)" % [s.progression.talent_points, s.respec_points])
+
+	# MULTI-ORDER respec, unwinding leaf -> mid -> root: master (refund 3), then keen (refund 2), then blade
+	# (refund 1). Each refunds EXACTLY its cost, the melee sum reverts +4 -> +2 -> +1 -> 0, and respec_points
+	# decrement 3 -> 2 -> 1 -> 0. This spends the whole RESPEC_START allowance (3) exactly.
+	var r_master: bool = s.respec(MASTER)
+	ctx.check(r_master and not s.talents.is_unlocked(MASTER) and s.progression.talent_points == 7
+			and s.melee_damage_bonus() == 2 and s.respec_points == respec_before - 1,
+		"respec(master_strike) as the leaf refunds EXACTLY 3 (4 -> 7), reverts melee +4 -> +2, respec_points -1",
+		"respec(master_strike) refund/bonus/allowance wrong (pts %d, bonus %d, respec %d)" % [s.progression.talent_points, s.melee_damage_bonus(), s.respec_points])
+	var r_keen: bool = s.respec(KEEN)
+	ctx.check(r_keen and not s.talents.is_unlocked(KEEN) and s.progression.talent_points == 9
+			and s.melee_damage_bonus() == 1 and s.respec_points == respec_before - 2,
+		"respec(keen_edge) now that master is gone (it is a leaf) refunds EXACTLY 2 (7 -> 9), reverts +2 -> +1",
+		"respec(keen_edge) mid-node refund/bonus wrong (pts %d, bonus %d)" % [s.progression.talent_points, s.melee_damage_bonus()])
+	var r_blade: bool = s.respec(BLADE)
+	ctx.check(r_blade and not s.talents.is_unlocked(BLADE) and s.progression.talent_points == 10
+			and s.melee_damage_bonus() == 0 and s.respec_points == respec_before - 3,
+		"respec(blade_focus) as the last leaf refunds EXACTLY 1 (9 -> 10), reverts +1 -> 0, allowance now spent",
+		"respec(blade_focus) root refund/bonus wrong (pts %d, bonus %d)" % [s.progression.talent_points, s.melee_damage_bonus()])
+
+	# INDEPENDENT root (heavy_hitter) respecced ON ITS OWN -- a fresh sheet (the one above spent its whole
+	# allowance). Unlock heavy (cost 2, +2), then respec it straight back: refund 2, bonus reverts to 0.
+	var s2: CharacterSheet = CharacterSheet.new()
+	s2.progression.talent_points = 5
+	s2.unlock_talent(HEAVY)
+	ctx.check(s2.melee_damage_bonus() == 2 and s2.progression.talent_points == 3
+			and s2.respec(HEAVY) and not s2.talents.is_unlocked(HEAVY)
+			and s2.progression.talent_points == 5 and s2.melee_damage_bonus() == 0
+			and s2.respec_points == CharacterSheet.RESPEC_START - 1,
+		"an INDEPENDENT root (heavy_hitter) unlocks then respecs on its own -- refund 2 (3 -> 5), bonus 2 -> 0",
+		"independent-root heavy_hitter unlock/respec wrong (pts %d, bonus %d)" % [s2.progression.talent_points, s2.melee_damage_bonus()])
+
+
 ## Part 2.2b MELEE_DAMAGE -- a controlled player's swing deals measurably MORE atk after a MELEE talent is
 ## unlocked. combat.gd adds the sheet's melee_damage_bonus onto the Sword Hitbox atk for the swing's
 ## duration (read off the OWNING player), so the boost is observable mid-swing on player._sword.atk and
@@ -336,6 +415,149 @@ func _harvest_yield_leg(ctx: TestContext) -> void:
 	for other in displaced:
 		if is_instance_valid(other):
 			other.add_to_group("player")
+	holder.queue_free()
+	await ctx.tree.physics_frame
+
+
+## FIX 1/2 -- equip-mid-swing must NOT corrupt the base atk. The bug: combat's swing-scoped MELEE bonus and
+## equipment's equip_tool both write the Sword Hitbox atk; a tool swap mid-swing overwrote the base while a
+## bonus was applied, so the swing-end clear subtracted it from the WRONG base -> permanent corruption. The
+## fix GATES equip while a swing is in flight (the input-processing methods skip). This leg unlocks a MELEE
+## talent, begins a swing, drives the REAL scroll-wheel equip path mid-swing (gated -> no swap), drains the
+## swing, and asserts BOTH tools keep their correct base atk -- then that the SAME swap works normally AFTER.
+## The wheel path (handle_wheel_input) takes the event + is_attacking as plain arguments, so this drives the
+## true equip chokepoint deterministically (no Input-singleton frame-timing fragility).
+func _equip_gate_leg(ctx: TestContext) -> void:
+	var holder: Node2D = Node2D.new()
+	ctx.tree.root.add_child(holder)
+	var player: Player = PLAYER_SCENE.instantiate() as Player
+	player.pickup_radius = 0.0
+	holder.add_child(player)
+	player.global_position = HOME + Vector2(0, 10000)
+	await ctx.settle_idle()
+	await ctx.tree.physics_frame
+
+	# The default equipped tool is the sword; record its base atk and the axe's authored base. A wheel-down
+	# notch cycles equipped_index 0 (sword) -> 1 (axe), so a successful equip lands on the axe.
+	var sword_base: int = player._sword.atk
+	var axe_base: int = Player.AXE_DATA.atk
+	var wheel: InputEventMouseButton = InputEventMouseButton.new()
+	wheel.button_index = MOUSE_BUTTON_WHEEL_DOWN
+	wheel.pressed = true
+
+	# Unlock a MELEE talent (blade_focus, +1) so a swing applies a real bonus onto the Sword Hitbox atk.
+	player.character().progression.talent_points = 5
+	var okb: bool = player.character().unlock_talent(BLADE)
+	ctx.check(okb and player.character().melee_damage_bonus() == 1,
+		"equip-gate setup: blade_focus unlocked, melee bonus +1",
+		"equip-gate setup failed (ok %s, bonus %d)" % [str(okb), player.character().melee_damage_bonus()])
+
+	# Begin a swing (index 0), NOT awaited: _begin_swing has applied the +1 bonus, so atk is base+1 in flight.
+	player._combo_index = 0
+	player.attack()
+	ctx.check(player._combat.is_attacking() and player._sword.atk == sword_base + 1,
+		"a swing is in flight with the melee bonus applied (atk %d = base %d + 1)" % [player._sword.atk, sword_base],
+		"swing did not apply the bonus / not attacking (atk %d, base %d)" % [player._sword.atk, sword_base])
+
+	# MID-SWING: drive the REAL scroll-wheel equip path with is_attacking=true -- it must SKIP the equip,
+	# leaving the sword active, the equipped_index un-cycled, and atk untouched (the same notch equips the axe
+	# below when NOT attacking, so this proves the gate blocked a swap that would otherwise have corrupted atk).
+	player._equipment.handle_wheel_input(wheel, player._combat.is_attacking())
+	ctx.check(player._equipment._active_tool == Player.SWORD_DATA and player._sword.atk == sword_base + 1
+			and player.inventory.equipped_index == 0,
+		"a mid-swing wheel-equip is GATED: sword stays active, index un-cycled, atk unchanged (still %d)" % player._sword.atk,
+		"a mid-swing equip was NOT gated (active tool/index/atk changed, atk %d)" % player._sword.atk)
+
+	# Drain the swing; its end clears the bonus, restoring the sword's EXACT base -- no corruption.
+	await _drain_swing(ctx, player)
+	ctx.check(player._sword.atk == sword_base and player._combat._melee_bonus_applied == 0,
+		"after the swing the sword base atk is restored EXACTLY (%d), bonus tracker 0 -- no corruption" % sword_base,
+		"the swing left the sword base corrupted (atk %d, base %d, bonus %d)" % [player._sword.atk, sword_base, player._combat._melee_bonus_applied])
+
+	# Now (not attacking) the SAME wheel notch SUCCEEDS: the axe equips at its correct, uncorrupted base.
+	player._equipment.handle_wheel_input(wheel, player._combat.is_attacking())
+	ctx.check(player._equipment._active_tool == Player.AXE_DATA and player._sword.atk == axe_base,
+		"AFTER the swing the swap works: the axe equips at its correct base atk (%d), uncorrupted" % axe_base,
+		"the post-swing axe equip failed / base corrupted (atk %d, expected %d)" % [player._sword.atk, axe_base])
+
+	holder.queue_free()
+	await ctx.tree.physics_frame
+
+
+## FIX 2 -- a mid-swing CANCEL (the death path routes through combat.cancel_swing) must clear the MELEE bonus
+## and restore the Sword Hitbox base atk EXACTLY, so a cancelled swing never strands the bonus on the next
+## swing's base. Unlock a MELEE talent, begin a swing (bonus applied), cancel it, assert the base is restored.
+func _cancel_clears_bonus_leg(ctx: TestContext) -> void:
+	var holder: Node2D = Node2D.new()
+	ctx.tree.root.add_child(holder)
+	var player: Player = PLAYER_SCENE.instantiate() as Player
+	player.pickup_radius = 0.0
+	holder.add_child(player)
+	player.global_position = HOME + Vector2(0, 12000)
+	await ctx.settle_idle()
+	await ctx.tree.physics_frame
+
+	var sword_base: int = player._sword.atk
+	player.character().progression.talent_points = 5
+	player.character().unlock_talent(BLADE)  # MELEE +1
+
+	# Begin a swing: the bonus is applied, atk = base + 1, in flight.
+	player._combo_index = 0
+	player.attack()
+	ctx.check(player._combat.is_attacking() and player._sword.atk == sword_base + 1
+			and player._combat._melee_bonus_applied == 1,
+		"pre-cancel: a swing is in flight with the +1 bonus applied (atk %d, tracker 1)" % player._sword.atk,
+		"pre-cancel state wrong (atk %d, base %d, tracker %d)" % [player._sword.atk, sword_base, player._combat._melee_bonus_applied])
+
+	# Cancel mid-swing (the death path): remove the bonus, restore the base EXACTLY, zero the tracker, clear
+	# the attacking latch.
+	player._combat.cancel_swing()
+	ctx.check(player._sword.atk == sword_base and player._combat._melee_bonus_applied == 0
+			and not player._combat.is_attacking(),
+		"cancel_swing restores the base atk EXACTLY (%d), zeroes the bonus tracker, clears the attacking latch" % sword_base,
+		"cancel_swing left atk/bonus/attacking wrong (atk %d, base %d, tracker %d)" % [player._sword.atk, sword_base, player._combat._melee_bonus_applied])
+
+	holder.queue_free()
+	await ctx.tree.physics_frame
+
+
+## FIX 2 -- the MELEE bonus lands on a NON-sword swing too, confirming EVERY swing path routes through
+## _begin_swing (not just the sword arc the melee leg covers). Empties the equipped slot (the unarmed fist --
+## a distinct _punch path), unlocks a MELEE talent, and begins a jab: the fist Hitbox atk includes the bonus
+## mid-swing, then reverts to the unarmed base after.
+func _nonsword_bonus_leg(ctx: TestContext) -> void:
+	var holder: Node2D = Node2D.new()
+	ctx.tree.root.add_child(holder)
+	var player: Player = PLAYER_SCENE.instantiate() as Player
+	player.pickup_radius = 0.0
+	holder.add_child(player)
+	player.global_position = HOME + Vector2(0, 14000)
+	await ctx.settle_idle()
+	await ctx.tree.physics_frame
+
+	# Empty the equipped slot -> the unarmed fist (a NON-sword, NON-combo swing path: _punch).
+	player.inventory.equip_index(5)  # slot 5 is empty (sword/axe/pickaxe seed slots 0-2)
+	player._apply_equipped()
+	ctx.check(player._is_unarmed and player._sword.atk == Player.UNARMED_ATK,
+		"unarmed setup: no tool equipped, fist atk at the unarmed base (%d)" % Player.UNARMED_ATK,
+		"unarmed setup failed (unarmed %s, atk %d)" % [str(player._is_unarmed), player._sword.atk])
+	var fist_base: int = player._sword.atk
+
+	player.character().progression.talent_points = 5
+	player.character().unlock_talent(BLADE)  # MELEE +1
+
+	# Begin the jab (unarmed -> _punch), NOT awaited: _begin_swing applies the +1 bonus onto the fist atk.
+	player._combo_index = 0
+	player.attack()
+	ctx.check(player._combat.is_attacking() and player._sword.atk == fist_base + 1,
+		"a NON-sword (unarmed jab) swing includes the melee bonus mid-swing (atk %d = base %d + 1)" % [player._sword.atk, fist_base],
+		"the melee bonus did not land on the unarmed swing (atk %d, base %d)" % [player._sword.atk, fist_base])
+
+	await _drain_swing(ctx, player)
+	ctx.check(player._sword.atk == fist_base,
+		"the unarmed swing's bonus is swing-scoped: fist atk reverts to the base (%d) after" % fist_base,
+		"the unarmed swing leaked the bonus (atk %d, base %d)" % [player._sword.atk, fist_base])
+
 	holder.queue_free()
 	await ctx.tree.physics_frame
 

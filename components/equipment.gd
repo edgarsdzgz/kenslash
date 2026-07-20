@@ -223,7 +223,16 @@ func _on_tool_broke() -> void:
 ## equip behaves identically no matter which input triggered it. Called from the player's
 ## _physics_process (unchanged cadence) -- inventory input is read directly from the
 ## InputMap, NOT via FrameInput, exactly as before the split.
-func process_inventory_input() -> void:
+##
+## `is_attacking` SERIALIZES equip against the combat swing (the equip-mid-swing corruption fix): equip
+## writes the Sword Hitbox's BASE atk, and a swing temporarily ADDS a MELEE_DAMAGE talent bonus onto that
+## same atk, so swapping tools mid-swing would overwrite the base under an applied bonus and the swing-end
+## clear would then subtract it from the WRONG base -- permanent corruption. While a swing is in flight we
+## SKIP the whole equip pass (the swing is ~0.12s); the press is dropped like the attack guard drops a
+## re-press. The player passes combat.is_attacking() down -- a bare boolean, no coupling to combat internals.
+func process_inventory_input(is_attacking: bool) -> void:
+	if is_attacking:
+		return
 	if Input.is_action_just_pressed("tool_1"):
 		inventory.equip_index(0)
 		apply_equipped()
@@ -274,7 +283,11 @@ func process_inventory_input() -> void:
 ## pressed=true edge means one notch triggers exactly one cycle, never two. Forwarded
 ## verbatim from the player's _unhandled_input (this is a RefCounted, so it cannot get
 ## engine input callbacks itself) -- identical handling to the pre-split player.
-func handle_wheel_input(event: InputEvent) -> void:
+## `is_attacking` gates the wheel-equip for the SAME serialize-against-the-swing reason as
+## process_inventory_input: a notch scrolled mid-swing would corrupt the Sword Hitbox atk, so it is dropped.
+func handle_wheel_input(event: InputEvent, is_attacking: bool) -> void:
+	if is_attacking:
+		return
 	if event is InputEventMouseButton:
 		var mb: InputEventMouseButton = event as InputEventMouseButton
 		if not mb.pressed:

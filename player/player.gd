@@ -295,7 +295,7 @@ func _physics_process(delta: float) -> void:
 	# state a peer/AI would drive), so they are read directly from the InputMap by the
 	# Equipment here rather than routed through FrameInput. Same physics-frame cadence as
 	# before the split.
-	_equipment.process_inventory_input()
+	_equipment.process_inventory_input(_combat.is_attacking())
 	# Magnetic auto-pickup (E3a). Like inventory input, this runs OUTSIDE the FrameInput /
 	# _simulate seam: grabbing ground loot is a LOCAL world interaction, not networked simulation
 	# state a peer/AI would replay -- see components/pickup.gd. The player calls down each frame.
@@ -307,7 +307,7 @@ func _physics_process(delta: float) -> void:
 ## the Equipment (a RefCounted, which cannot receive engine input callbacks itself).
 ## Same one-shot InputEventMouseButton handling as before the split.
 func _unhandled_input(event: InputEvent) -> void:
-	_equipment.handle_wheel_input(event)
+	_equipment.handle_wheel_input(event, _combat.is_attacking())
 
 
 ## Produce this tick's intent. Local source reads the InputMap; if input_override is

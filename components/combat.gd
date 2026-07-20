@@ -116,6 +116,16 @@ func setup(player: Node2D, sword_pivot: Node2D, blade: Polygon2D, sword_shape: C
 	_combo_reset_timer.timeout.connect(_on_combo_reset)
 
 
+## Whether a swing is currently in flight (the `_attacking` guard). Read by the equipment input path so a
+## mid-swing tool-equip is SKIPPED/deferred: equip writes the Sword Hitbox's BASE atk, while a swing has a
+## MELEE_DAMAGE talent bonus temporarily ADDED onto that SAME atk (_apply_melee_bonus / _clear_melee_bonus).
+## An equip mid-swing would overwrite the base under an "applied" bonus, so the later _clear subtracts the
+## bonus from the WRONG base -- permanently corrupting atk. Gating equip while attacking serializes the two
+## writers of that node (the swing is ~swing_duration, ~0.12s); a swap pressed mid-swing simply applies AFTER.
+func is_attacking() -> bool:
+	return _attacking
+
+
 ## Play a swing in the current facing direction, then retract the blade. Callable directly via
 ## the player.attack() facade -- the headless smoke test calls it, so attacking must NOT be gated
 ## solely behind real input. The equipped tool decides the STYLE: UNARMED (no tool) is a quick

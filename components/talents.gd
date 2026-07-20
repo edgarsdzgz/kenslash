@@ -26,6 +26,7 @@ extends RefCounted
 const TREE: Array[TalentData] = [
 	preload("res://data/talents/blade_focus.tres"),
 	preload("res://data/talents/keen_edge.tres"),
+	preload("res://data/talents/master_strike.tres"),
 	preload("res://data/talents/forager.tres"),
 	preload("res://data/talents/heavy_hitter.tres"),
 ]
