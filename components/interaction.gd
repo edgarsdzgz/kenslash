@@ -119,7 +119,10 @@ func craft_open_pending() -> bool:
 	return _craft_open_pending
 
 
-## Take the pending open request: clear the flag and RETURN the station tags to hand CraftMenu.open(). Returns []
+## Take the pending open request: clear the flag and RETURN the station tags that were in range at the press.
+## Consuming is what the HUD calls to acknowledge the one-shot request; since Part 4.2 the HUD re-derives the
+## station tag->level map fresh (Station.levels_in_range) for the tier gate rather than reusing these tags, so the
+## returned list is now the press-time presence record (kept for symmetry / a caller that wants it). Returns []
 ## when nothing is pending (the HUD guards on craft_open_pending() first). One-shot -- consuming resets the flag.
 func consume_craft_open() -> Array[StringName]:
 	_craft_open_pending = false

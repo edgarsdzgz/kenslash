@@ -77,13 +77,13 @@ func apply_state(state: Dictionary) -> void:
 
 
 ## Collect the station tags in range of `world_pos` -- every DISTINCT `station_tag` of a Station within `radius`
-## of the position. STATIC + decoupled: a caller (Part 4.2 interaction, or a test) computes this and hands the
-## plain Array[StringName] to Crafting.craft() as its `in_range_station_tags`, so crafting never touches a
-## station node. Deterministic distance compare (<= radius, the same idiom as components/interaction.gd); tags
-## are de-duplicated (two forges nearby contribute one &"forge") and empty-tag stations are skipped. The active
-## SceneTree is read via Engine.get_main_loop() (a fixed engine handle, no Time/OS/RNG) so the signature stays
-## clean -- no tree/player argument to thread through. Returns [] when nothing is in range (a craft-anywhere
-## recipe ignores it anyway).
+## of the position. STATIC + decoupled: components/interaction.gd computes this for the 'f' station-PRESENCE check
+## (the "Craft" prompt + station-over-harvest priority + the open request). The CRAFT-EXECUTION gate uses the
+## richer levels_in_range() below (tag -> level) since Part 4.2 -- this tag-only scan remains the presence signal
+## the interaction wants. Deterministic distance compare (<= radius, the same idiom as components/interaction.gd);
+## tags are de-duplicated (two forges nearby contribute one &"forge") and empty-tag stations are skipped. The
+## active SceneTree is read via Engine.get_main_loop() (a fixed engine handle, no Time/OS/RNG) so the signature
+## stays clean -- no tree/player argument to thread through. Returns [] when nothing is in range.
 static func tags_in_range(world_pos: Vector2, radius: float) -> Array[StringName]:
 	var out: Array[StringName] = []
 	var loop: SceneTree = Engine.get_main_loop() as SceneTree
@@ -99,6 +99,36 @@ static func tags_in_range(world_pos: Vector2, radius: float) -> Array[StringName
 			continue
 		if world_pos.distance_to(st.global_position) <= radius and not out.has(st.station_tag):
 			out.append(st.station_tag)
+	return out
+
+
+## Collect the station tag -> MAX in-range LEVEL map for `world_pos` (plan-epic2-parts.md Phase 4 Part 4.2) -- the
+## TIER-GATE analogue of tags_in_range. For every Station within `radius`, record `dict[station_tag] = max(existing,
+## station.level())` so a tag maps to the HIGHEST level among the matching stations in reach (two forges nearby, a
+## bare level-1 and a leveled-up level-2, report &"forge" -> 2 -- the better bench wins). STATIC + decoupled exactly
+## like tags_in_range: a caller (the menu/HUD, or a test) computes this and hands the plain Dictionary to
+## Crafting.would_craft/craft as its `in_range_station_levels`, so crafting sees only the map, never a Station node.
+## Deterministic <= radius distance compare over the "station" group with the same freed/queued + empty-tag skips
+## (an empty-tag station contributes nothing), reading the active SceneTree via Engine.get_main_loop() (a fixed
+## engine handle, no Time/OS/RNG). SUPERSEDES tags_in_range at the craft seam: the KEYS of this map are exactly the
+## tags tags_in_range would return, so the plain tag gate (station_tag present?) still reads off `.has(tag)` while
+## the tier gate additionally compares the mapped level. Returns {} when nothing is in range (a craft-anywhere or
+## un-tiered recipe is unaffected).
+static func levels_in_range(world_pos: Vector2, radius: float) -> Dictionary:
+	var out: Dictionary = {}
+	var loop: SceneTree = Engine.get_main_loop() as SceneTree
+	if loop == null:
+		return out
+	for node in loop.get_nodes_in_group(GROUP):
+		if not (node is Station):
+			continue
+		var st: Station = node as Station
+		if not is_instance_valid(st) or st.is_queued_for_deletion():
+			continue
+		if st.station_tag == &"":
+			continue
+		if world_pos.distance_to(st.global_position) <= radius:
+			out[st.station_tag] = maxi(int(out.get(st.station_tag, 0)), st.level())
 	return out
 
 

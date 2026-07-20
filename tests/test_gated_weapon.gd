@@ -155,15 +155,15 @@ func _recipe_craft_gated_then_equippable(ctx: TestContext) -> void:
 	var inv: Inventory = Inventory.new()
 	inv.add_item(IRON_ORE, 3)
 	inv.add_item(STICK, 1)
-	var no_forge: bool = craft.craft(FORGE, sheet, inv)   # default in_range_station_tags == []
+	var no_forge: bool = craft.craft(FORGE, sheet, inv)   # default in_range_station_levels == {}
 	ctx.check(not no_forge and inv.count_of(IRON_ORE) == 3 and inv.count_of(STICK) == 1
 			and inv.count_of(IRON_SWORD) == 0,
 		"forge_iron_sword REFUSES to craft with no forge in range -- ore stays 3, stick stays 1, no sword",
 		"station-gated weapon crafted without a forge (ok %s, ore %d, stick %d, sword %d)" % [str(no_forge), inv.count_of(IRON_ORE), inv.count_of(STICK), inv.count_of(IRON_SWORD)])
 
-	# With &"forge" in range it crafts end to end: ore 3 -> 0, stick 1 -> 0, iron_sword 0 -> 1.
-	var forge_tags: Array[StringName] = [&"forge"]
-	var forged: bool = craft.craft(FORGE, sheet, inv, forge_tags)
+	# With &"forge" in range (level 1 clears min_station_level 0) it crafts end to end: ore 3 -> 0, stick 1 -> 0, iron_sword 0 -> 1.
+	var forge_levels: Dictionary = {&"forge": 1}
+	var forged: bool = craft.craft(FORGE, sheet, inv, forge_levels)
 	ctx.check(forged and inv.count_of(IRON_ORE) == 0 and inv.count_of(STICK) == 0 and inv.count_of(IRON_SWORD) == 1,
 		"forge_iron_sword crafts with &\"forge\" in range: ore 3 -> 0, stick 1 -> 0, iron_sword 0 -> 1",
 		"forge_iron_sword did not craft with a forge present (ok %s, ore %d, stick %d, sword %d)" % [str(forged), inv.count_of(IRON_ORE), inv.count_of(STICK), inv.count_of(IRON_SWORD)])

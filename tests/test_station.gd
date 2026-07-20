@@ -80,32 +80,32 @@ func run(ctx: TestContext) -> void:
 	var away: Vector2 = HOME + Vector2(0.0, 6000.0)
 	var inv_out: Inventory = Inventory.new()
 	inv_out.add_item(FIBER, 5)
-	var out_tags: Array[StringName] = Station.tags_in_range(away, Station.DEFAULT_REACH)
-	var out_ok: bool = craft.craft(MASTER, sheet, inv_out, out_tags)
-	ctx.check(learned and out_tags.is_empty() and not out_ok
+	var out_levels: Dictionary = Station.levels_in_range(away, Station.DEFAULT_REACH)
+	var out_ok: bool = craft.craft(MASTER, sheet, inv_out, out_levels)
+	ctx.check(learned and out_levels.is_empty() and not out_ok
 			and inv_out.count_of(FIBER) == 5 and inv_out.count_of(CORD) == 0,
-		"END TO END: no forge in range -> tags_in_range [] -> master_cordage REFUSES, nothing consumed (fiber stays 5)",
-		"station-gated craft ran out of range (learned=%s, tags=%s, ok=%s, fiber=%d, cord=%d)" % [str(learned), str(out_tags), str(out_ok), inv_out.count_of(FIBER), inv_out.count_of(CORD)])
+		"END TO END: no forge in range -> levels_in_range {} -> master_cordage REFUSES, nothing consumed (fiber stays 5)",
+		"station-gated craft ran out of range (learned=%s, levels=%s, ok=%s, fiber=%d, cord=%d)" % [str(learned), str(out_levels), str(out_ok), inv_out.count_of(FIBER), inv_out.count_of(CORD)])
 
-	# In range: query beside the near forge -> [&"forge"] -> craft succeeds end to end.
+	# In range: query beside the near forge -> {&"forge": 1} -> craft succeeds end to end (level 1 clears min 0).
 	var inv_in: Inventory = Inventory.new()
 	inv_in.add_item(FIBER, 5)
-	var in_tags: Array[StringName] = Station.tags_in_range(near.global_position, Station.DEFAULT_REACH)
-	var in_ok: bool = craft.craft(MASTER, sheet, inv_in, in_tags)
-	ctx.check(in_tags.has(&"forge") and in_ok and inv_in.count_of(FIBER) == 0 and inv_in.count_of(CORD) == 3,
-		"END TO END: a forge in range -> tags_in_range [&\"forge\"] -> master_cordage crafts (fiber 5 -> 0, cord 0 -> 3)",
-		"station-gated craft failed in range (tags=%s, ok=%s, fiber=%d, cord=%d)" % [str(in_tags), str(in_ok), inv_in.count_of(FIBER), inv_in.count_of(CORD)])
+	var in_levels: Dictionary = Station.levels_in_range(near.global_position, Station.DEFAULT_REACH)
+	var in_ok: bool = craft.craft(MASTER, sheet, inv_in, in_levels)
+	ctx.check(in_levels.get(&"forge", 0) == 1 and in_ok and inv_in.count_of(FIBER) == 0 and inv_in.count_of(CORD) == 3,
+		"END TO END: a forge in range -> levels_in_range {&\"forge\": 1} -> master_cordage crafts (fiber 5 -> 0, cord 0 -> 3)",
+		"station-gated craft failed in range (levels=%s, ok=%s, fiber=%d, cord=%d)" % [str(in_levels), str(in_ok), inv_in.count_of(FIBER), inv_in.count_of(CORD)])
 
 	# --- craft-anywhere recipe crafts with NO station near -------------------------------------------
 	var sheet_free: CharacterSheet = CharacterSheet.new()
 	sheet_free.known_recipes.learn(SPIN)
 	var inv_free: Inventory = Inventory.new()
 	inv_free.add_item(FIBER, 3)
-	var free_tags: Array[StringName] = Station.tags_in_range(away, Station.DEFAULT_REACH)  # [] out here
-	var free_ok: bool = craft.craft(SPIN, sheet_free, inv_free, free_tags)
-	ctx.check(free_tags.is_empty() and free_ok and inv_free.count_of(FIBER) == 0 and inv_free.count_of(CORD) == 1,
-		"craft-anywhere spin_cord crafts with NO station in range (tags []): fiber 3 -> 0, cord 0 -> 1 -- the gate fences only station-tagged recipes",
-		"craft-anywhere recipe was blocked with no station (tags=%s, ok=%s, fiber=%d, cord=%d)" % [str(free_tags), str(free_ok), inv_free.count_of(FIBER), inv_free.count_of(CORD)])
+	var free_levels: Dictionary = Station.levels_in_range(away, Station.DEFAULT_REACH)  # {} out here
+	var free_ok: bool = craft.craft(SPIN, sheet_free, inv_free, free_levels)
+	ctx.check(free_levels.is_empty() and free_ok and inv_free.count_of(FIBER) == 0 and inv_free.count_of(CORD) == 1,
+		"craft-anywhere spin_cord crafts with NO station in range (levels {}): fiber 3 -> 0, cord 0 -> 1 -- the gate fences only station-tagged recipes",
+		"craft-anywhere recipe was blocked with no station (levels=%s, ok=%s, fiber=%d, cord=%d)" % [str(free_levels), str(free_ok), inv_free.count_of(FIBER), inv_free.count_of(CORD)])
 
 	holder.queue_free()
 	await ctx.tree.physics_frame

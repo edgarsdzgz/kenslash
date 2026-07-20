@@ -3,10 +3,13 @@ class_name TestStationLeveling extends RefCounted
 ## Station carries a LEVEL derived from the COUNT of placeable ADD-ONS (world/station_addon.gd) within its reach,
 ## capped at Station.MAX_ADDON_LEVELS: level = 1 + min(add-ons in reach, MAX_ADDON_LEVELS). The add-on is the THIRD
 ## placeable, riding the SAME kind-agnostic build + streaming-delta path a Station / Container does (it differs
-## only in placement_kind() = Kind.ADDON and its own build cost, wood x2). This part is ONLY the add-on entity,
-## the level() derivation + cap, and add-on persistence; wiring the level into a recipe TIER gate is Part 4.2.
+## only in placement_kind() = Kind.ADDON and its own build cost, wood x2). Part 4.1 was the add-on entity, the
+## level() derivation + cap, and add-on persistence; Part 4.2 (the Epic 2 finale) wires that level into a recipe
+## TIER gate -- a recipe can require a minimum station LEVEL, composing with the existing station_tag gate so a
+## leveled-up workshop unlocks better recipes (RecipeData.min_station_level + Station.levels_in_range +
+## Crafting._station_satisfies). Legs D + E below cover the tier gate; A/B/C cover the Part 4.1 leveling.
 ##
-## THREE self-contained legs, each at REMOTE coords clear of every other module + of each other (so no add-on or
+## FIVE self-contained legs, each at REMOTE coords clear of every other module + of each other (so no add-on or
 ## station wanders into another scan), mirroring the isolation style of tests/test_station.gd + test_container.gd:
 ##   A (level derivation + cap): a Station with NO add-on is level 1; ONE add-on in reach -> 2; TWO -> 3; a THIRD
 ##     in reach does NOT raise past the cap (still 3); an add-on FAR from the station does not count. Pure logic on
@@ -19,10 +22,22 @@ class_name TestStationLeveling extends RefCounted
 ##     their SAME positions on reload, and the station's level() RECOMPUTES to the same value (2) from the add-on
 ##     that persisted (nothing level-specific stored). Zero-orphan; the generator baseline regenerates byte-
 ##     identically (the additions are explicit deltas, never rng draws -- determinism sacred).
+##   D (TIER GATE, pure -- Part 4.2): off hand-built tag->level maps, Crafting composes station_tag WITH
+##     min_station_level. forge_masterwork_blade (forge + min_station_level 2) is REFUSED at a level-1 forge
+##     ({&"forge": 1}), CRAFTS at a level-2 forge ({&"forge": 2}), and is REFUSED with no forge ({} -- composes with
+##     the tag gate); an un-tiered forge recipe (master_cordage, min_station_level 0) is UNAFFECTED by level.
+##   E (TIER GATE, end to end -- Part 4.2): a real forge Station is level 1 (levels_in_range {&"forge": 1}) and
+##     REFUSES the masterwork; placing an add-on in reach raises it to level 2 ({&"forge": 2}) and the SAME craft
+##     SUCCEEDS -- the whole world -> Station.levels_in_range -> Crafting tier path, no coupling.
 ## Registered in tests/smoke_slash.gd after TestCraftFromStorage (Phase 3), before the environment/enemy legs.
 
 const STATION_SCENE: PackedScene = preload("res://world/station.tscn")
 const ADDON_SCENE: PackedScene = preload("res://world/station_addon.tscn")
+
+## Part 4.2 TIER-GATE recipes: the masterwork blade needs a forge of LEVEL >= 2 (iron_ore x2 + cord x1 -> iron_sword);
+## master_cordage is a forge recipe with min_station_level 0 (un-tiered -- unaffected by the forge's level).
+const MASTERWORK: StringName = &"forge_masterwork_blade"
+const MASTER: StringName = &"master_cordage"
 
 ## Remote regions clear of every other self-contained module (station -90000, container 140000/21000-24000,
 ## placement-persist 7000-15000, builder 120000, boulder 90000, pebble -60000, ...) AND of each other, so no
@@ -32,6 +47,7 @@ const HOME_B: Vector2 = Vector2(-160000.0, 160000.0)    # Leg B: Builder-direct 
 const FOCUS_C: Vector2i = Vector2i(31000, 31000)        # Leg C: station + add-on round trip
 const STATION_LOCAL_C: Vector2 = Vector2(200.0, 240.0)
 const ADDON_LOCAL_C: Vector2 = Vector2(230.0, 240.0)    # 30 px from the station -- inside DEFAULT_REACH (80 px)
+const HOME_E: Vector2 = Vector2(170000.0, -170000.0)    # Leg E: tier gate end to end (real forge + add-on)
 const SEED: int = 7
 
 
@@ -40,6 +56,8 @@ func run(ctx: TestContext) -> void:
 	await _leg_level_derivation(ctx)
 	await _leg_build_cost(ctx)
 	await _leg_persist(ctx)
+	_leg_tier_gate(ctx)
+	await _leg_tier_world(ctx)
 
 
 ## Leg A: the level() derivation + the cap, on a plain holder (no streaming). A Station is level 1 with no add-ons;
@@ -207,6 +225,102 @@ func _leg_persist(ctx: TestContext) -> void:
 	mgr.queue_free()
 	mover.queue_free()
 	await ctx.tree.physics_frame
+	await ctx.tree.physics_frame
+
+
+## Leg D: the TIER GATE purely (Part 4.2) -- Crafting composes station_tag WITH min_station_level off a hand-built
+## tag->level map, no nodes. forge_masterwork_blade (forge + min_station_level 2) is REFUSED at a level-1 forge,
+## CRAFTS at a level-2 forge, and is REFUSED with no forge at all (composing with the tag gate); an un-tiered forge
+## recipe (master_cordage, min_station_level 0) is UNAFFECTED by the forge's level. Learned via known_recipes.learn
+## (the learn gates are proven in tests/test_recipes.gd); this isolates the craft-time station+tier gate.
+func _leg_tier_gate(ctx: TestContext) -> void:
+	var ORE: ItemData = load("res://data/iron_ore.tres")
+	var CORD: ItemData = load("res://data/cord.tres")
+	var SWORD: ItemData = load("res://data/iron_sword.tres")
+	var FIBER: ItemData = load("res://data/fiber.tres")
+	var craft: Crafting = Crafting.new()
+	var sheet: CharacterSheet = CharacterSheet.new()
+	sheet.known_recipes.learn(MASTERWORK)
+	sheet.known_recipes.learn(MASTER)
+
+	# LEVEL-1 forge does NOT satisfy min_station_level 2 -> REFUSED, nothing consumed.
+	var inv1: Inventory = Inventory.new()
+	inv1.add_item(ORE, 2)
+	inv1.add_item(CORD, 1)
+	var at_l1: bool = craft.craft(MASTERWORK, sheet, inv1, {&"forge": 1})
+	ctx.check(not at_l1 and inv1.count_of(ORE) == 2 and inv1.count_of(CORD) == 1 and inv1.count_of(SWORD) == 0,
+		"TIER GATE: forge_masterwork_blade (min_station_level 2) REFUSES at a LEVEL-1 forge ({forge:1}) -- nothing consumed (ore 2, cord 1, no sword)",
+		"tier-gated recipe crafted at a level-1 forge (ok=%s, ore=%d, cord=%d, sword=%d)" % [str(at_l1), inv1.count_of(ORE), inv1.count_of(CORD), inv1.count_of(SWORD)])
+
+	# LEVEL-2 forge clears the tier -> CRAFTS end to end; would_craft agrees.
+	var inv2: Inventory = Inventory.new()
+	inv2.add_item(ORE, 2)
+	inv2.add_item(CORD, 1)
+	var would2: bool = craft.would_craft(MASTERWORK, sheet, inv2, {&"forge": 2})
+	var at_l2: bool = craft.craft(MASTERWORK, sheet, inv2, {&"forge": 2})
+	ctx.check(would2 and at_l2 and inv2.count_of(ORE) == 0 and inv2.count_of(CORD) == 0 and inv2.count_of(SWORD) == 1,
+		"TIER GATE: forge_masterwork_blade CRAFTS at a LEVEL-2 forge ({forge:2}) -- ore 2 -> 0, cord 1 -> 0, iron_sword 0 -> 1 (would_craft agreed)",
+		"tier-gated recipe did not craft at a level-2 forge (would=%s, ok=%s, ore=%d, cord=%d, sword=%d)" % [str(would2), str(at_l2), inv2.count_of(ORE), inv2.count_of(CORD), inv2.count_of(SWORD)])
+
+	# NO forge at all -> REFUSED (the tier gate composes with the station_tag gate).
+	var inv0: Inventory = Inventory.new()
+	inv0.add_item(ORE, 2)
+	inv0.add_item(CORD, 1)
+	var none: bool = craft.craft(MASTERWORK, sheet, inv0, {})
+	ctx.check(not none and inv0.count_of(ORE) == 2 and inv0.count_of(SWORD) == 0,
+		"TIER GATE composes with the TAG gate: with NO forge in range ({}) forge_masterwork_blade REFUSES -- nothing consumed (ore stays 2)",
+		"tier-gated recipe crafted with no forge (ok=%s, ore=%d, sword=%d)" % [str(none), inv0.count_of(ORE), inv0.count_of(SWORD)])
+
+	# UN-TIERED forge recipe (master_cordage, min_station_level 0) is UNAFFECTED by level -> crafts at a LEVEL-1 forge.
+	var invm: Inventory = Inventory.new()
+	invm.add_item(FIBER, 5)
+	var untiered: bool = craft.craft(MASTER, sheet, invm, {&"forge": 1})
+	ctx.check(untiered and invm.count_of(FIBER) == 0 and invm.count_of(CORD) == 3,
+		"an UN-TIERED forge recipe (master_cordage, min_station_level 0) is UNAFFECTED by level -- crafts at a LEVEL-1 forge (fiber 5 -> 0, cord 0 -> 3)",
+		"un-tiered recipe was wrongly tier-gated at level 1 (ok=%s, fiber=%d, cord=%d)" % [str(untiered), invm.count_of(FIBER), invm.count_of(CORD)])
+
+
+## Leg E: the TIER GATE end to end through REAL nodes (Part 4.2) -- place a forge Station (level 1), then place an
+## add-on in reach to raise it to level 2, driving the craft through Station.levels_in_range (the map the menu/HUD
+## feed Crafting). At level 1 the scan is {&"forge": 1} and forge_masterwork_blade is REFUSED; after the add-on the
+## scan is {&"forge": 2} and the SAME craft SUCCEEDS. Proves the whole world -> levels_in_range -> Crafting tier
+## path with no coupling, mirroring test_station's end-to-end style.
+func _leg_tier_world(ctx: TestContext) -> void:
+	var holder: Node2D = Node2D.new()
+	ctx.tree.root.add_child(holder)
+	var ORE: ItemData = load("res://data/iron_ore.tres")
+	var CORD: ItemData = load("res://data/cord.tres")
+	var SWORD: ItemData = load("res://data/iron_sword.tres")
+	var craft: Crafting = Crafting.new()
+	var sheet: CharacterSheet = CharacterSheet.new()
+	sheet.known_recipes.learn(MASTERWORK)
+
+	# A real forge Station at HOME_E: levels_in_range reports it as level 1 -> the masterwork is REFUSED.
+	var forge: Station = _make_station(holder, HOME_E, &"forge")
+	await ctx.tree.physics_frame
+	var lvls_l1: Dictionary = Station.levels_in_range(HOME_E, Station.DEFAULT_REACH)
+	var inv1: Inventory = Inventory.new()
+	inv1.add_item(ORE, 2)
+	inv1.add_item(CORD, 1)
+	var at_l1: bool = craft.craft(MASTERWORK, sheet, inv1, lvls_l1)
+	ctx.check(lvls_l1 == {&"forge": 1} and not at_l1 and inv1.count_of(ORE) == 2 and inv1.count_of(SWORD) == 0,
+		"END TO END: a bare LEVEL-1 forge (levels_in_range {forge:1}) REFUSES forge_masterwork_blade -- nothing consumed (ore stays 2)",
+		"tier recipe crafted at a real level-1 forge (levels=%s, ok=%s, ore=%d, sword=%d)" % [str(lvls_l1), str(at_l1), inv1.count_of(ORE), inv1.count_of(SWORD)])
+
+	# Place an add-on within reach -> forge.level() == 2 -> levels_in_range {&"forge": 2}; the SAME craft now SUCCEEDS.
+	_make_addon(holder, HOME_E + Vector2(30.0, 0.0))
+	await ctx.tree.physics_frame
+	var lvls_l2: Dictionary = Station.levels_in_range(HOME_E, Station.DEFAULT_REACH)
+	var inv2: Inventory = Inventory.new()
+	inv2.add_item(ORE, 2)
+	inv2.add_item(CORD, 1)
+	var at_l2: bool = craft.craft(MASTERWORK, sheet, inv2, lvls_l2)
+	ctx.check(forge.level() == 2 and lvls_l2 == {&"forge": 2} and at_l2
+			and inv2.count_of(ORE) == 0 and inv2.count_of(CORD) == 0 and inv2.count_of(SWORD) == 1,
+		"END TO END: an add-on raises the forge to LEVEL 2 (levels_in_range {forge:2}) -> forge_masterwork_blade CRAFTS (ore 2 -> 0, cord 1 -> 0, iron_sword 0 -> 1)",
+		"tier recipe did not craft after raising the forge to level 2 (level=%d, levels=%s, ok=%s, ore=%d, cord=%d, sword=%d)" % [forge.level(), str(lvls_l2), str(at_l2), inv2.count_of(ORE), inv2.count_of(CORD), inv2.count_of(SWORD)])
+
+	holder.queue_free()
 	await ctx.tree.physics_frame
 
 

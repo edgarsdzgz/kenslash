@@ -326,7 +326,7 @@ func _recipe_survives_prereq_respec_test(ctx: TestContext) -> void:
 	var inv: Inventory = Inventory.new()
 	inv.add_item(IRON_ORE, 3)
 	inv.add_item(STICK_ITEM, 1)
-	var still_craftable: bool = craft.would_craft(FORGE_RECIPE, s, inv, [&"forge"] as Array[StringName])
+	var still_craftable: bool = craft.would_craft(FORGE_RECIPE, s, inv, {&"forge": 1})
 	ctx.check(learned and respecced and not s.talents.is_unlocked(HEAVY)
 			and s.known_recipes.is_known(FORGE_RECIPE) and still_craftable,
 		"RESPEC of a recipe's prereq talent does NOT relock the recipe: heavy_hitter respecced away, yet forge_iron_sword stays KNOWN + CRAFTABLE (learn is a one-time gate, decoupled from talent state)",

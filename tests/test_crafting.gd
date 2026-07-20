@@ -322,11 +322,12 @@ func _duplicate_input_aggregation(ctx: TestContext) -> void:
 
 
 ## STATION-TAG gate (Part 4.1). master_cordage carries station_tag &"forge", now ACTIVE: it crafts ONLY when the
-## &"forge" tag is in `in_range_station_tags`. Learned the real way through the sheet (min_level 3 met, blueprint
-## cost 3 paid), then: (A) with NO station tag in range (the default-empty list) it REFUSES -- fiber untouched,
-## no cord; (B) with &"forge" in range it crafts end to end -- fiber x5 -> cord x3. A pure tag-list test (no
-## Station node needed here; the node + Station.tags_in_range are exercised end to end in tests/test_station.gd).
-## Also re-asserts a craft-anywhere recipe (spin_cord, station_tag "") is UNAFFECTED by the default-empty param.
+## &"forge" tag is a KEY of `in_range_station_levels` (min_station_level 0, so any present level clears the tier).
+## Learned the real way through the sheet (min_level 3 met, blueprint cost 3 paid), then: (A) with NO station in
+## range (the default-empty map) it REFUSES -- fiber untouched, no cord; (B) with {&"forge": 1} in range it crafts
+## end to end -- fiber x5 -> cord x3. A pure level-map test (no Station node needed here; the node + the real
+## Station.levels_in_range scan are exercised end to end in tests/test_station.gd). Also re-asserts a craft-anywhere
+## recipe (spin_cord, station_tag "") is UNAFFECTED by the default-empty param.
 func _station_tag_gate(ctx: TestContext) -> void:
 	var FIBER: ItemData = load("res://data/fiber.tres")
 	var CORD: ItemData = load("res://data/cord.tres")
@@ -340,16 +341,16 @@ func _station_tag_gate(ctx: TestContext) -> void:
 	# nothing consumed, even though the mats are present and it is learned (the STATION gate blocks it).
 	var inv_a: Inventory = Inventory.new()
 	inv_a.add_item(FIBER, 5)
-	var a_ok: bool = craft.craft(MASTER, sheet, inv_a)    # default in_range_station_tags == [] -> no forge
+	var a_ok: bool = craft.craft(MASTER, sheet, inv_a)    # default in_range_station_levels == {} -> no forge
 	ctx.check(learned and not a_ok and inv_a.count_of(FIBER) == 5 and inv_a.count_of(CORD) == 0,
 		"master_cordage (station_tag &\"forge\") REFUSES with NO forge in range -- consumes nothing (fiber stays 5, no cord)",
 		"station-gated recipe crafted without a station (learned=%s, ok=%s, fiber=%d, cord=%d)" % [str(learned), str(a_ok), inv_a.count_of(FIBER), inv_a.count_of(CORD)])
 
-	# Case B -- &"forge" IS in range: the same recipe now crafts end to end (fiber 5 -> 0, cord 0 -> 3).
+	# Case B -- &"forge" IS in range (level 1 clears min_station_level 0): the same recipe now crafts end to end.
 	var inv_b: Inventory = Inventory.new()
 	inv_b.add_item(FIBER, 5)
-	var forge_tags: Array[StringName] = [&"forge"]
-	var b_ok: bool = craft.craft(MASTER, sheet, inv_b, forge_tags)
+	var forge_levels: Dictionary = {&"forge": 1}
+	var b_ok: bool = craft.craft(MASTER, sheet, inv_b, forge_levels)
 	ctx.check(b_ok and inv_b.count_of(FIBER) == 0 and inv_b.count_of(CORD) == 3,
 		"master_cordage SUCCEEDS with &\"forge\" in range: fiber 5 -> 0, cord 0 -> 3 (the station gate opens)",
 		"station-gated recipe did not craft in range (ok=%s, fiber=%d, cord=%d)" % [str(b_ok), inv_b.count_of(FIBER), inv_b.count_of(CORD)])
@@ -360,7 +361,7 @@ func _station_tag_gate(ctx: TestContext) -> void:
 	sheet_c.known_recipes.learn(SPIN)
 	var inv_c: Inventory = Inventory.new()
 	inv_c.add_item(FIBER, 3)
-	var c_ok: bool = craft.craft(SPIN, sheet_c, inv_c)    # station_tag "" -> gate ignored, default [] fine
+	var c_ok: bool = craft.craft(SPIN, sheet_c, inv_c)    # station_tag "" -> gate ignored, default {} fine
 	ctx.check(c_ok and inv_c.count_of(FIBER) == 0 and inv_c.count_of(CORD) == 1,
 		"craft-anywhere spin_cord (station_tag \"\") still crafts with NO station in range -- gate only fences station-tagged recipes",
 		"craft-anywhere recipe was wrongly station-gated (ok=%s, fiber=%d, cord=%d)" % [str(c_ok), inv_c.count_of(FIBER), inv_c.count_of(CORD)])

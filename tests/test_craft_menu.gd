@@ -50,9 +50,9 @@ func run(ctx: TestContext) -> void:
 	await _regressions_hud(ctx)
 
 
-## MENU API (pure): drive ui/craft_menu.tscn directly with hand-built sheet/inventory + tag lists. No station
-## node needed -- open() takes the in-range tags as a plain Array, so a station-gated flag is tested by simply
-## passing [] vs [&"forge"].
+## MENU API (pure): drive ui/craft_menu.tscn directly with hand-built sheet/inventory + level maps. No station
+## node needed -- open() takes the in-range tag->level map as a plain Dictionary, so a station-gated flag is tested
+## by simply passing {} vs {&"forge": 1}.
 func _menu_api(ctx: TestContext) -> void:
 	var holder: Node2D = Node2D.new()
 	ctx.tree.root.add_child(holder)
@@ -69,7 +69,7 @@ func _menu_api(ctx: TestContext) -> void:
 	inv.add_item(FIBER, 5)              # >= spin (3) AND >= master (5)
 
 	# --- open with NO station in range: both KNOWN recipes listed; spin craftable, master BLOCKED (no forge) ---
-	menu.open(sheet, inv, [] as Array[StringName])
+	menu.open(sheet, inv, {})
 	var ids: Array[StringName] = menu.listed_ids()
 	ctx.check(menu.is_open and ids.has(SPIN) and ids.has(MASTER) and ids.size() == 2,
 		"open() lists the player's KNOWN recipes (spin_cord + master_cordage) and marks the menu open (got " + str(ids) + ")",
@@ -79,7 +79,7 @@ func _menu_api(ctx: TestContext) -> void:
 		"craftable flags wrong with no station (spin=%s, master=%s)" % [str(menu.is_craftable(SPIN)), str(menu.is_craftable(MASTER))])
 
 	# --- re-open WITH &"forge" in range: the station-gated recipe becomes craftable ---
-	menu.open(sheet, inv, [&"forge"] as Array[StringName])
+	menu.open(sheet, inv, {&"forge": 1})
 	ctx.check(menu.is_craftable(MASTER) and menu.is_craftable(SPIN),
 		"with &\"forge\" in range: master_cordage is NOW craftable (station gate opens), spin_cord still craftable",
 		"station-gated flag did not open with the forge tag in range (master=%s, spin=%s)" % [str(menu.is_craftable(MASTER)), str(menu.is_craftable(SPIN))])
@@ -100,12 +100,12 @@ func _menu_api(ctx: TestContext) -> void:
 	sheet2.known_recipes.learn(MASTER)
 	var inv2: Inventory = Inventory.new()
 	inv2.add_item(FIBER, 5)
-	menu.open(sheet2, inv2, [] as Array[StringName])       # no forge
+	menu.open(sheet2, inv2, {})       # no forge
 	var blocked: bool = menu.craft(MASTER)                  # gate refuses -> nothing consumed
 	ctx.check(not blocked and inv2.count_of(FIBER) == 5 and inv2.count_of(CORD) == 0,
 		"menu.craft(master_cordage) REFUSES with no forge in range -- nothing consumed (fiber stays 5)",
 		"station-gated craft ran through the menu without a station (ok=%s, fiber=%d, cord=%d)" % [str(blocked), inv2.count_of(FIBER), inv2.count_of(CORD)])
-	menu.open(sheet2, inv2, [&"forge"] as Array[StringName])  # forge now in range
+	menu.open(sheet2, inv2, {&"forge": 1})  # forge now in range
 	var forged: bool = menu.craft(MASTER)
 	ctx.check(forged and inv2.count_of(FIBER) == 0 and inv2.count_of(CORD) == 3,
 		"menu.craft(master_cordage) SUCCEEDS with &\"forge\" in range: fiber 5 -> 0, cord 0 -> 3 through the menu",
@@ -160,17 +160,17 @@ func _flagship_forge(ctx: TestContext) -> void:
 	await ctx.tree.physics_frame
 
 	# --- open with NO forge in range: the learned recipe is LISTED but NOT craftable (station gate blocks it) ---
-	menu.open(sheet, inv, [] as Array[StringName])
+	menu.open(sheet, inv, {})
 	ctx.check(menu.listed_ids().has(FORGE) and not menu.is_craftable(FORGE),
 		"the learned forge_iron_sword is LISTED but NOT craftable through the menu with no forge in range (station gate)",
 		"flagship craftable flag wrong with no forge (listed=%s, craftable=%s)" % [str(menu.listed_ids().has(FORGE)), str(menu.is_craftable(FORGE))])
 
-	# --- re-open WITH the real forge Station in range (scan [forge]): NOW craftable through the menu ---
-	var forge_tags: Array[StringName] = Station.tags_in_range(FLAGSHIP, Station.DEFAULT_REACH)
-	menu.open(sheet, inv, forge_tags)
-	ctx.check(forge_tags == [&"forge"] and menu.is_craftable(FORGE),
-		"with a REAL forge Station in range (scan [forge]) the flagship forge_iron_sword is NOW craftable through the menu",
-		"flagship not craftable with the forge in range (tags=%s, craftable=%s)" % [str(forge_tags), str(menu.is_craftable(FORGE))])
+	# --- re-open WITH the real forge Station in range (scan {forge: 1}): NOW craftable through the menu ---
+	var forge_levels: Dictionary = Station.levels_in_range(FLAGSHIP, Station.DEFAULT_REACH)
+	menu.open(sheet, inv, forge_levels)
+	ctx.check(forge_levels == {&"forge": 1} and menu.is_craftable(FORGE),
+		"with a REAL forge Station in range (scan {forge: 1}) the flagship forge_iron_sword is NOW craftable through the menu",
+		"flagship not craftable with the forge in range (levels=%s, craftable=%s)" % [str(forge_levels), str(menu.is_craftable(FORGE))])
 
 	# --- craft the flagship THROUGH the menu (select + craft_selected): ore x3 + stick x1 -> iron_sword ---
 	menu.select(FORGE)
@@ -317,7 +317,7 @@ func _regressions_pure(ctx: TestContext) -> void:
 	sheet.known_recipes.learn(SPIN)                          # SPIN learned; MASTER a real catalog id but UNLEARNED
 	var inv: Inventory = Inventory.new()
 	inv.add_item(FIBER, 5)                                   # enough for MASTER's 5 fiber, were it known
-	menu.open(sheet, inv, [&"forge"] as Array[StringName])  # forge in range -> only the LEARN gate can block MASTER
+	menu.open(sheet, inv, {&"forge": 1})  # forge in range -> only the LEARN gate can block MASTER
 	ctx.check(not menu.is_craftable(MASTER) and menu.is_craftable(SPIN),
 		"is_craftable is HONEST about the learn set: an UNLEARNED catalog id (master_cordage) is NOT craftable even with materials + forge in range; the learned spin_cord IS",
 		"is_craftable lied about an unlearned catalog id (master=%s, spin=%s)" % [str(menu.is_craftable(MASTER)), str(menu.is_craftable(SPIN))])
@@ -330,7 +330,7 @@ func _regressions_pure(ctx: TestContext) -> void:
 	var full_inv: Inventory = Inventory.new()
 	full_inv.add_item(FIBER, 5)                              # slot 0
 	full_inv.add_item(STICK, 255 * 14)                      # slots 1..14 -> every slot now occupied
-	menu.open(full_sheet, full_inv, [] as Array[StringName])
+	menu.open(full_sheet, full_inv, {})
 	var full_flag: bool = menu.is_craftable(SPIN)
 	var full_craft: bool = menu.craft(SPIN)
 	ctx.check(not full_flag and not full_craft and full_inv.count_of(FIBER) == 5 and full_inv.count_of(CORD) == 0,
@@ -340,7 +340,7 @@ func _regressions_pure(ctx: TestContext) -> void:
 	# --- craft_selected() with NOTHING selected (EMPTY known set) -> refuses (reaches the empty-selection branch) ---
 	var empty_sheet: CharacterSheet = CharacterSheet.new()   # knows nothing
 	var empty_inv: Inventory = Inventory.new()
-	menu.open(empty_sheet, empty_inv, [] as Array[StringName])
+	menu.open(empty_sheet, empty_inv, {})
 	ctx.check(menu.row_count() == 0 and menu.selected_id() == &"" and not menu.craft_selected(),
 		"craft_selected() with an EMPTY known set refuses (no rows, no selection) -- reaches the empty-selection branch",
 		"craft_selected did not refuse on an empty known set (rows=%d, sel=%s, ok=%s)" % [menu.row_count(), str(menu.selected_id()), str(menu.craft_selected())])
@@ -350,7 +350,7 @@ func _regressions_pure(ctx: TestContext) -> void:
 	known_sheet.known_recipes.learn(SPIN)
 	var known_inv: Inventory = Inventory.new()
 	known_inv.add_item(FIBER, 5)
-	menu.open(known_sheet, known_inv, [] as Array[StringName])
+	menu.open(known_sheet, known_inv, {})
 	var bogus: bool = menu.craft(&"not_a_real_recipe")
 	ctx.check(not bogus and known_inv.count_of(FIBER) == 5 and known_inv.count_of(CORD) == 0,
 		"menu.craft(unknown id) refuses through the menu -- nothing consumed (fiber stays 5, no cord)",
@@ -362,7 +362,7 @@ func _regressions_pure(ctx: TestContext) -> void:
 	flip_sheet.known_recipes.learn(SPIN)                     # spin needs fiber x3
 	var flip_inv: Inventory = Inventory.new()
 	flip_inv.add_item(FIBER, 2)                              # one short
-	menu.open(flip_sheet, flip_inv, [] as Array[StringName])
+	menu.open(flip_sheet, flip_inv, {})
 	var before_flip: bool = menu.is_craftable(SPIN)
 	flip_inv.add_item(FIBER, 1)                              # now 3 -- affordable
 	var after_flip: bool = menu.is_craftable(SPIN)
@@ -422,9 +422,9 @@ func _regressions_hud(ctx: TestContext) -> void:
 		"[station-leaves] walking the forge out of range AUTO-CLOSES the menu (HUD re-scans live tags -> empty -> close; never stuck)",
 		"[station-leaves] menu stayed open after walking away (open=%s)" % [str(cm.is_open)])
 
-	# GATE NOT BYPASSABLE: with the live tags now EMPTY, master_cordage is not craftable and a craft refuses -- the
-	# gate reads current station presence, never the stale [&"forge"] snapshot open() captured.
-	cm.set_tags(Station.tags_in_range(player.global_position, Station.DEFAULT_REACH))
+	# GATE NOT BYPASSABLE: with the live levels now EMPTY, master_cordage is not craftable and a craft refuses -- the
+	# gate reads current station presence, never the stale {&"forge": 1} snapshot open() captured.
+	cm.set_levels(Station.levels_in_range(player.global_position, Station.DEFAULT_REACH))
 	var stale_craft: bool = cm.craft(MASTER)
 	ctx.check(not cm.is_craftable(MASTER) and not stale_craft and player.inventory.count_of(FIBER) == 5,
 		"[station-leaves] with live tags EMPTY the forge recipe is NOT craftable and craft() refuses -- the stale-snapshot bypass is gone (fiber stays 5)",

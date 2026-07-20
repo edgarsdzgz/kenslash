@@ -1,0 +1,20 @@
+[gd_resource type="Resource" script_class="RecipeData" load_steps=5 format=3]
+
+[ext_resource type="Script" path="res://components/recipe_data.gd" id="1_recipe"]
+[ext_resource type="Resource" path="res://data/iron_ore.tres" id="2_ore"]
+[ext_resource type="Resource" path="res://data/cord.tres" id="3_cord"]
+[ext_resource type="Resource" path="res://data/iron_sword.tres" id="4_sword"]
+
+[resource]
+script = ExtResource("1_recipe")
+id = &"forge_masterwork_blade"
+display_name = "Masterwork Blade"
+input_items = Array[ItemData]([ExtResource("2_ore"), ExtResource("3_cord")])
+input_counts = Array[int]([2, 1])
+output_item = ExtResource("4_sword")
+output_count = 1
+blueprint_cost = 2
+prereq_talent = &""
+min_level = 0
+station_tag = &"forge"
+min_station_level = 2

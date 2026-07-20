@@ -16,13 +16,14 @@ class_name TestRecipes extends RefCounted
 ## asserts ONLY the learn model + the gates. Fully standalone: pure component instances, no player/scene wiring.
 ## Registered in tests/smoke_slash.gd, mirroring tests/test_talents.gd.
 
-## The five authored catalog ids (data/recipes/*.tres) + their costs/gates the tests reason about.
+## The authored catalog ids (data/recipes/*.tres) + their costs/gates the tests reason about.
 const BUNDLE: StringName = &"bundle_sticks"      # cost 1, no gate (wood x2 -> stick x4)
 const SPIN: StringName = &"spin_cord"            # cost 1, no gate (fiber x3 -> cord x1)
 const FLINT: StringName = &"flint_kit"           # cost 2, no gate (stone x2 + fiber x1 -> cord x1)
 const HONED: StringName = &"honed_edge_kit"      # cost 2, prereq_talent blade_focus (stone x3 + stick x1 -> cord x2)
 const MASTER: StringName = &"master_cordage"     # cost 3, min_level 3 (fiber x5 -> cord x3)
 const FORGE: StringName = &"forge_iron_sword"    # cost 2, prereq heavy_hitter + min_level 3 + station forge (iron_ore x3 + stick x1 -> iron_sword)
+const MASTERWORK: StringName = &"forge_masterwork_blade"  # cost 2, station forge + min_station_level 2 (iron_ore x2 + cord x1 -> iron_sword)
 ## The Track A talent id the honed_edge_kit recipe is gated behind (an EXISTING data/talents node).
 const BLADE: StringName = &"blade_focus"
 ## The Track A talent id the forge_iron_sword recipe is gated behind (an EXISTING data/talents node).
@@ -43,12 +44,20 @@ func run(ctx: TestContext) -> void:
 func _catalog_tests(ctx: TestContext) -> void:
 	var k: KnownRecipes = KnownRecipes.new()
 
-	# The authored catalog has all six recipes and no strays.
-	ctx.check(k.all_recipes().size() == 6 and k.recipe(BUNDLE) != null and k.recipe(SPIN) != null
+	# The authored catalog has all seven recipes and no strays.
+	ctx.check(k.all_recipes().size() == 7 and k.recipe(BUNDLE) != null and k.recipe(SPIN) != null
 			and k.recipe(FLINT) != null and k.recipe(HONED) != null and k.recipe(MASTER) != null
-			and k.recipe(FORGE) != null,
-		"recipe catalog loads the 6 authored recipes (bundle_sticks, spin_cord, flint_kit, honed_edge_kit, master_cordage, forge_iron_sword)",
+			and k.recipe(FORGE) != null and k.recipe(MASTERWORK) != null,
+		"recipe catalog loads the 7 authored recipes (bundle_sticks, spin_cord, flint_kit, honed_edge_kit, master_cordage, forge_iron_sword, forge_masterwork_blade)",
 		"recipe catalog missing a recipe or wrong size (size %d)" % k.all_recipes().size())
+
+	# The tier-gated masterwork recipe pins its Part 4.2 gate: station forge + min_station_level 2 (an un-tiered
+	# recipe reads min_station_level 0). Composes with station_tag -- enforced at craft in tests/test_station_leveling.
+	var masterwork: RecipeData = k.recipe(MASTERWORK)
+	ctx.check(masterwork.station_tag == &"forge" and masterwork.min_station_level == 2
+			and k.recipe(MASTER).min_station_level == 0 and k.recipe(BUNDLE).min_station_level == 0,
+		"forge_masterwork_blade authors the TIER gate (station forge + min_station_level 2); un-tiered recipes read min_station_level 0",
+		"tier-gate authoring drifted from the .tres (masterwork tag=%s lvl=%d)" % [str(masterwork.station_tag), masterwork.min_station_level])
 
 	# Costs + the two gate values match the authored .tres (pins the catalog the test reasons about).
 	var honed: RecipeData = k.recipe(HONED)

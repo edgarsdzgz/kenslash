@@ -63,10 +63,11 @@ func has_materials_for(recipe: RecipeData, inventory: Inventory, extra_stores: A
 ## Execute one craft of `recipe_id` for `sheet`, pulling inputs from `inventory`. ATOMIC + guarded:
 ##   (1) the id must be KNOWN on the sheet's KnownRecipes (Part 3.1 learn gate) -- else refuse;
 ##   (2) resolve the RecipeData; a missing definition refuses;
-##   (2.5) STATION gate (Part 4.1): if the recipe needs a station (station_tag != "") and that tag is NOT in
-##       `in_range_station_tags`, refuse -- consuming NOTHING. Craft-anywhere recipes (station_tag == "") ignore
-##       the param entirely. Checked BEFORE the snapshot/consume so atomicity holds (a station-blocked craft
-##       touches the inventory not at all).
+##   (2.5) STATION gate (Part 4.1) + TIER gate (Part 4.2): if the recipe needs a station (station_tag != "") then
+##       its tag MUST be present in `in_range_station_levels` AND the mapped in-range level MUST be >= the recipe's
+##       min_station_level -- else refuse, consuming NOTHING. Craft-anywhere recipes (station_tag == "") ignore the
+##       param entirely. Checked BEFORE the snapshot/consume so atomicity holds (a station-blocked craft touches
+##       the inventory not at all).
 ##   (3) AGGREGATE the input rows by item (duplicate rows summed) and PRECHECK every DISTINCT input is present
 ##       in its TOTAL required count (_has_inputs) -- else refuse, consuming NOTHING;
 ##   (4) SNAPSHOT the inventory, remove each distinct input's total, add output_item x output_count, and if the
@@ -76,10 +77,11 @@ func has_materials_for(recipe: RecipeData, inventory: Inventory, extra_stores: A
 ## inventory is byte-identical to before (no partial consumption). Deterministic integer/membership work, no
 ## Time/OS/RNG.
 ##
-## `in_range_station_tags` is the plain list of station tags currently near the player (world/station.gd's
-## Station.tags_in_range collects it); it DEFAULTS to [] so every existing craft-anywhere call site is
-## unchanged and only ever matters for a station-gated recipe. Crafting stays decoupled from station NODES --
-## it sees only this passed tag list, never a Station.
+## `in_range_station_levels` is the tag -> MAX-in-range-level map currently near the player (world/station.gd's
+## Station.levels_in_range collects it); it DEFAULTS to {} so every existing craft-anywhere call site is unchanged
+## and only ever matters for a station-gated recipe. The plain STATION gate reads `.has(station_tag)` (the keys are
+## exactly the tags that would be "in range") and the TIER gate additionally requires the mapped level to clear
+## min_station_level. Crafting stays decoupled from station NODES -- it sees only this passed map, never a Station.
 ##
 ## CRAFT-FROM-STORAGE (Epic 2 Part 3.1): `extra_stores` is the in-range container stores (ui/hud.gd collects
 ## them via Interaction.containers_in_range) and DEFAULTS to [] so an inventory-only craft is byte-identical to
@@ -91,7 +93,7 @@ func has_materials_for(recipe: RecipeData, inventory: Inventory, extra_stores: A
 ## met. ATOMIC ACROSS ALL touched stores: the inventory AND every store are snapshotted before consuming,
 ## and on output-overflow EVERY snapshot is restored -- a failed craft leaves the inventory AND every container
 ## byte-identical. The output is always added to the personal `inventory`.
-func craft(recipe_id: StringName, sheet: CharacterSheet, inventory: Inventory, in_range_station_tags: Array[StringName] = [], extra_stores: Array[Inventory] = []) -> bool:
+func craft(recipe_id: StringName, sheet: CharacterSheet, inventory: Inventory, in_range_station_levels: Dictionary = {}, extra_stores: Array[Inventory] = []) -> bool:
 	if sheet == null or sheet.known_recipes == null or inventory == null:
 		return false
 	# NORMALIZE the stores ONCE (drop alias-to-inventory / duplicate / null) so consume/snapshot/restore below all
@@ -104,10 +106,10 @@ func craft(recipe_id: StringName, sheet: CharacterSheet, inventory: Inventory, i
 	var recipe: RecipeData = sheet.known_recipes.recipe(recipe_id)
 	if recipe == null:
 		return false
-	# (2.5) STATION gate (Part 4.1) -- a station-gated recipe crafts ONLY when its tag is in range. Placed BEFORE
-	# the precheck/snapshot so a station-blocked craft consumes NOTHING (atomicity). Craft-anywhere recipes fall
-	# straight through (needs_station false).
-	if needs_station(recipe) and not in_range_station_tags.has(recipe.station_tag):
+	# (2.5) STATION + TIER gate (Part 4.1/4.2) -- a station-gated recipe crafts ONLY when its tag is in range AND
+	# that tag's in-range level clears min_station_level. Placed BEFORE the precheck/snapshot so a station-blocked
+	# craft consumes NOTHING (atomicity). Craft-anywhere recipes fall straight through (needs_station false).
+	if needs_station(recipe) and not _station_satisfies(recipe, in_range_station_levels):
 		return false
 	# (3) ATOMIC PRECHECK -- aggregate duplicate input rows, then verify every DISTINCT input's TOTAL is present
 	# ACROSS the inventory + extra_stores BEFORE removing any. Bail with nothing consumed.
@@ -137,7 +139,8 @@ func craft(recipe_id: StringName, sheet: CharacterSheet, inventory: Inventory, i
 ## craft() acceptance -- no ad-hoc catalog lookup that could show craftable for an UNLEARNED id (recipe() reads the
 ## full CATALOG, is_known reads the learned set) or when a full inventory would make craft() refuse the output.
 ## Deterministic: pure membership + integer counts over the passed components, snapshot/restore only, no Time/OS/
-## RNG. `in_range_station_tags` mirrors craft() -- defaults to [] so a craft-anywhere dry-run ignores it.
+## RNG. `in_range_station_levels` mirrors craft() -- defaults to {} so a craft-anywhere dry-run ignores it, and it
+## enforces the SAME station-tag + tier (min_station_level) gate.
 ##
 ## CRAFT-FROM-STORAGE (Epic 2 Part 3.1): `extra_stores` mirrors craft() -- defaults to [] so an inventory-only
 ## dry-run is byte-identical. When passed, it is _normalize_stores()d ONCE (alias-to-`inventory`/duplicate/null
@@ -146,7 +149,7 @@ func craft(recipe_id: StringName, sheet: CharacterSheet, inventory: Inventory, i
 ## snapshot/consume/restore spans the inventory AND every store, so a full-inventory dry-run leaves EVERY
 ## store byte-identical (a net no-op) exactly as craft() would leave them on its overflow rollback. This is what
 ## makes CraftMenu.is_craftable light up from a nearby chest while committing nothing.
-func would_craft(recipe_id: StringName, sheet: CharacterSheet, inventory: Inventory, in_range_station_tags: Array[StringName] = [], extra_stores: Array[Inventory] = []) -> bool:
+func would_craft(recipe_id: StringName, sheet: CharacterSheet, inventory: Inventory, in_range_station_levels: Dictionary = {}, extra_stores: Array[Inventory] = []) -> bool:
 	if sheet == null or sheet.known_recipes == null or inventory == null:
 		return false
 	# NORMALIZE identically to craft() so the dry-run verdict tracks craft() even under an aliasing/duplicate store.
@@ -158,8 +161,9 @@ func would_craft(recipe_id: StringName, sheet: CharacterSheet, inventory: Invent
 	var recipe: RecipeData = sheet.known_recipes.recipe(recipe_id)
 	if recipe == null:
 		return false
-	# (2.5) STATION gate -- a station-gated recipe is craftable ONLY when its tag is in range.
-	if needs_station(recipe) and not in_range_station_tags.has(recipe.station_tag):
+	# (2.5) STATION + TIER gate -- a station-gated recipe is craftable ONLY when its tag is in range AND that tag's
+	# in-range level clears min_station_level (matches craft()'s gate exactly).
+	if needs_station(recipe) and not _station_satisfies(recipe, in_range_station_levels):
 		return false
 	# (3) MATERIAL precheck -- every distinct input's aggregated total must be present across inventory + stores.
 	var needs: Dictionary = _aggregate_inputs(recipe)
@@ -288,5 +292,18 @@ func _restore_stores(extra_stores: Array[Inventory], snaps: Array) -> void:
 ## re-deriving the rule, mirroring how has_materials_for exposes the material predicate.
 func needs_station(recipe: RecipeData) -> bool:
 	return recipe != null and recipe.station_tag != &""
+
+
+## Whether the in-range stations SATISFY `recipe`'s station gate (plan-epic2-parts.md Phase 4 Part 4.2) -- the
+## composed STATION-TAG + TIER check craft()/would_craft() run for a station-gated recipe. `in_range_station_levels`
+## is the tag -> max-in-range-level map (Station.levels_in_range). Returns true IFF the recipe's station_tag is a KEY
+## (a matching station is present -- the plain Part 4.1 gate) AND its mapped level is >= recipe.min_station_level
+## (the Part 4.2 tier gate). COMPOSES cleanly: no matching tag -> false (refused as before); tag present but level
+## below the threshold -> false (the NEW tier gate); default min_station_level 0 -> satisfied by ANY present station
+## (a placed station is level >= 1, so this is BYTE-IDENTICAL to the Part 4.1 tag-only gate for un-tiered recipes).
+## Assumes needs_station(recipe) already held (a craft-anywhere recipe never reaches here). Pure integer/membership.
+func _station_satisfies(recipe: RecipeData, in_range_station_levels: Dictionary) -> bool:
+	return in_range_station_levels.has(recipe.station_tag) \
+		and int(in_range_station_levels[recipe.station_tag]) >= recipe.min_station_level
 
 # Verified against: Godot 4.7.1 (2026-07-20)

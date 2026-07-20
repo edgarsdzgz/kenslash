@@ -7,14 +7,14 @@ extends Control
 ## can stand at a station, see what they can make, and make it.
 ##
 ## PRESENTATION + THIN DRIVER, owns NO game state. It reads a CharacterSheet (its KnownRecipes) + an Inventory
-## and the in-range station tags handed to open(); it never caches recipe knowledge or materials. The craftable
+## and the in-range station levels handed to open(); it never caches recipe knowledge or materials. The craftable
 ## FLAG and the craft EXECUTION both defer to Crafting (has_materials_for / needs_station / craft), the SAME
 ## chokepoint the headless craft tests exercise -- so the menu adds no new craft rules, it only surfaces + calls
 ## the existing ones. The HUD hosts + opens this (streaming_world.tscn -> HUD); the player never reaches into it
 ## beyond the interaction seam that requests the open (ui/hud.gd polls player._interaction, mirroring how the
 ## HUD polls every other player-owned state -- "HUD reads player, player never reaches into HUD").
 ##
-## DETERMINISM: open()/craft() are pure membership + integer work over the passed sheet/inventory/tags (Crafting
+## DETERMINISM: open()/craft() are pure membership + integer work over the passed sheet/inventory/levels (Crafting
 ## does the atomic consume/produce); no Time/OS/RNG in the craft path (NOTES.md rule), so every listing + craft
 ## is exactly headless-assertable. Visibility toggling is presentation-only. A RefCounted Crafting instance is
 ## reused across crafts (it is stateless), so this adds no per-craft allocation churn and no node to the streaming
@@ -30,10 +30,11 @@ var _sheet: CharacterSheet = null
 ## additional source via _extra_stores (a craft drains this inventory FIRST, then those); Crafting owns the split.
 ## Set by open().
 var _inventory: Inventory = null
-## The station tags currently in range of the player (Station.tags_in_range), routed in by open() so a station-
-## gated recipe is craftable ONLY when its tag is present. A COPY is held so a later world change cannot mutate
-## the menu's view mid-session.
-var _tags: Array[StringName] = []
+## The station tag -> MAX-in-range-LEVEL map currently near the player (Station.levels_in_range), routed in by open()
+## so a station-gated recipe is craftable ONLY when its tag is present AND its level clears the recipe's
+## min_station_level (the Part 4.2 tier gate). A COPY is held so a later world change cannot mutate the menu's view
+## mid-session. Empty {} == no station in range (every station-gated recipe blocked).
+var _levels: Dictionary = {}
 ## The in-range container STORES a craft may also source inputs from (Epic 2 Part 3.1 craft-from-storage), routed
 ## in by open() and refreshed live by set_extra_stores(). Only the LIST is copied -- the held entries are the LIVE
 ## container Inventory refs, so a craft actually consumes from the nearby chests (personal inventory first, then
@@ -54,15 +55,16 @@ var is_open: bool = false
 @onready var _list: VBoxContainer = $Panel/Column/List
 
 
-## OPEN the menu against a live sheet/inventory + the station tags in range (the interaction seam hands these in),
-## plus the in-range container STORES (Epic 2 Part 3.1) a craft may also source from. Stores the refs, marks open
+## OPEN the menu against a live sheet/inventory + the station tag->level map in range (the HUD derives it via
+## Station.levels_in_range), plus the in-range container STORES (Epic 2 Part 3.1) a craft may also source from.
+## The levels map gates BOTH the station-tag presence and the min_station_level tier. Stores the refs, marks open
 ## + visible, and (re)builds the listing of the player's KNOWN recipes with each recipe's live craftable flag.
 ## Idempotent -- re-opening just refreshes against the current state. `extra_stores` DEFAULTS to [] so an
 ## inventory-only open (a station with no chest nearby, or a pure-API test) is byte-identical to Epic 1.
-func open(sheet: CharacterSheet, inventory: Inventory, in_range_tags: Array[StringName], extra_stores: Array[Inventory] = []) -> void:
+func open(sheet: CharacterSheet, inventory: Inventory, in_range_levels: Dictionary, extra_stores: Array[Inventory] = []) -> void:
 	_sheet = sheet
 	_inventory = inventory
-	_tags = in_range_tags.duplicate()
+	_levels = in_range_levels.duplicate()
 	_extra_stores = extra_stores.duplicate()  # copy the LIST; the Inventory refs stay live (a craft consumes them)
 	is_open = true
 	visible = true
@@ -104,7 +106,7 @@ func craft_selected() -> bool:
 func craft(id: StringName) -> bool:
 	if _sheet == null or _inventory == null:
 		return false
-	var ok: bool = _crafting.craft(id, _sheet, _inventory, _tags, _extra_stores)
+	var ok: bool = _crafting.craft(id, _sheet, _inventory, _levels, _extra_stores)
 	if ok:
 		_rebuild()
 	return ok
@@ -130,20 +132,21 @@ func listed_ids() -> Array[StringName]:
 ## Whether `id` can be crafted RIGHT NOW from the open state -- delegated WHOLESALE to Crafting.would_craft, the
 ## transactional dry-run of craft() (known + materials + station + the output FITS), so the "craftable" flag
 ## EXACTLY matches craft() acceptance. It is a NET NO-OP on the inventory (would_craft snapshots -> tests ->
-## restores), never commits, and judges against the CURRENT _tags (kept live by set_tags). This replaces the old
+## restores), never commits, and judges against the CURRENT _levels (kept live by set_levels). This replaces the old
 ## ad-hoc full-CATALOG lookup that could show craftable for an UNLEARNED id or when a full inventory would make
 ## craft() refuse the output; the flag can no longer lie. Exposed so a test asserts it without parsing a label.
 func is_craftable(id: StringName) -> bool:
-	return _crafting.would_craft(id, _sheet, _inventory, _tags, _extra_stores)
+	return _crafting.would_craft(id, _sheet, _inventory, _levels, _extra_stores)
 
 
-## Update the in-range station tags to `in_range_tags` (a COPY) and repaint, so is_craftable + craft judge against
-## the station presence RIGHT NOW, not the snapshot open() captured. The HUD calls this each frame while the menu
-## is open (Station.tags_in_range re-scanned live) so walking up to / away from a station re-evaluates the gate --
-## the stale-snapshot bypass (craft a forge recipe with no forge present) can never happen. Presentation-safe: the
-## rows recompute their craftable/blocked flags off the fresh tags.
-func set_tags(in_range_tags: Array[StringName]) -> void:
-	_tags = in_range_tags.duplicate()
+## Update the in-range station tag->level map to `in_range_levels` (a COPY) and repaint, so is_craftable + craft
+## judge against the station presence AND tier RIGHT NOW, not the snapshot open() captured. The HUD calls this each
+## frame while the menu is open (Station.levels_in_range re-scanned live) so walking up to / away from a station --
+## or raising its level with an add-on -- re-evaluates the gate; the stale-snapshot bypass (craft a forge recipe
+## with no forge present, or a tier recipe at a since-downgraded forge) can never happen. Presentation-safe: the
+## rows recompute their craftable/blocked flags off the fresh map.
+func set_levels(in_range_levels: Dictionary) -> void:
+	_levels = in_range_levels.duplicate()
 	_repaint_rows()
 
 
@@ -151,8 +154,8 @@ func set_tags(in_range_tags: Array[StringName]) -> void:
 ## judge availability against the chests RIGHT NOW, not the snapshot open() captured. Only the LIST is copied --
 ## the held entries are the LIVE container Inventory refs, so a craft actually consumes from them (personal
 ## inventory first, then these in order). Deliberately does NOT repaint: the HUD calls this each frame right
-## BEFORE set_tags (which repaints once with the fresh stores in view), so a single repaint per frame reflects
-## both -- the container analogue of set_tags without a redundant second row rebuild. The live query methods
+## BEFORE set_levels (which repaints once with the fresh stores in view), so a single repaint per frame reflects
+## both -- the container analogue of set_levels without a redundant second row rebuild. The live query methods
 ## (is_craftable/craft) read _extra_stores directly, so they are correct the instant this returns regardless.
 func set_extra_stores(stores: Array[Inventory]) -> void:
 	_extra_stores = stores.duplicate()

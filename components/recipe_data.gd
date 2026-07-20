@@ -59,5 +59,15 @@ extends Resource
 ## anywhere). Authored now so recipes are complete, but NOTHING reads it in Phase 3; learning is station-
 ## independent. Phase 4's Station node + in-range gate consume this.
 @export var station_tag: StringName = &""
+## OPTIONAL station TIER gate (plan-epic2-parts.md Phase 4 Part 4.2): the LOWEST station level() that may EXECUTE
+## this recipe, composing WITH station_tag (a leveled-up workshop unlocks better recipes). 0 = NO tier requirement
+## -- since a PLACED station is always level >= 1, a min_station_level 0 recipe is satisfied by ANY present
+## matching-tag station (byte-identical to a recipe that predates this field). A value like 2 fences the recipe to
+## a station of that station_tag whose in-range level() is >= 2 (a base forge + enough add-ons). INERT unless
+## station_tag is non-empty (a craft-anywhere recipe is never station- or tier-gated). Enforced by the CALLER
+## (components/crafting.gd: it reads the tag -> max-in-range-level map from Station.levels_in_range and refuses
+## when the present level is below this); this resource only DECLARES the threshold, mirroring how station_tag,
+## prereq_talent, and min_level are declared here and enforced by their gate. DETERMINISM: a fixed authored int.
+@export var min_station_level: int = 0
 
-# Verified against: Godot 4.7.1 (2026-07-19)
+# Verified against: Godot 4.7.1 (2026-07-20)

@@ -35,6 +35,7 @@ const CATALOG: Array[RecipeData] = [
 	preload("res://data/recipes/honed_edge_kit.tres"),
 	preload("res://data/recipes/master_cordage.tres"),
 	preload("res://data/recipes/forge_iron_sword.tres"),
+	preload("res://data/recipes/forge_masterwork_blade.tres"),
 ]
 
 ## id (StringName) -> RecipeData, built once from CATALOG in _init so lookups are O(1). Read-only after init.

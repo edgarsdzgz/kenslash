@@ -160,33 +160,36 @@ func _refresh_prompt() -> void:
 
 ## Craft menu open/close driver (plan-epic1-parts.md Part 4.2): the HUD MANAGES the open menu each frame so it can
 ## never get stuck and its station gate is always judged against LIVE station presence. Fixed ordering:
-##   1. An 'f'-near-a-station open REQUEST takes priority -- consume it and TOGGLE: if the menu is already open,
-##      close it (a second 'f' by the station still toggles closed) and RETURN; otherwise open it with the
-##      player's live CharacterSheet + Inventory and the tags that came with the request.
-##   2. Otherwise, if the menu is OPEN, re-scan the station tags in range RIGHT NOW: if EMPTY (walked away / the
-##      station streamed out) auto-dismiss with close() -- never stuck; else feed the current tags via set_tags so
-##      is_craftable + craft evaluate against the station actually present, not the stale snapshot from open().
+##   1. An 'f'-near-a-station open REQUEST takes priority -- consume it (clearing the one-shot flag) and TOGGLE: if
+##      the menu is already open, close it (a second 'f' by the station still toggles closed) and RETURN; otherwise
+##      open it with the player's live CharacterSheet + Inventory and the tag->level map derived fresh at open (the
+##      Part 4.2 tier gate needs LEVELS, not just the request's tags, so the HUD re-scans Station.levels_in_range).
+##   2. Otherwise, if the menu is OPEN, re-scan the station levels in range RIGHT NOW: if EMPTY (walked away / the
+##      station streamed out) auto-dismiss with close() -- never stuck; else feed the current map via set_levels so
+##      is_craftable + craft evaluate against the station (and its tier) actually present, not the stale open() snap.
 ## The HUD reaches into the player-owned interaction (like it reads _stamina / _active_durability) and re-derives
-## live station presence with Station.tags_in_range; the player/interaction never reach into this UI. Guarded
-## until the interaction exists.
+## live station presence + tier with Station.levels_in_range; the player/interaction never reach into this UI.
+## Guarded until the interaction exists.
 func _refresh_craft_menu() -> void:
 	if _player._interaction == null:
 		return
 	if _player._interaction.craft_open_pending():
-		var tags: Array[StringName] = _player._interaction.consume_craft_open()
+		_player._interaction.consume_craft_open()  # clear the one-shot request; station levels are re-derived live below
 		if _craft_menu.is_open:
 			_craft_menu.close()
 		else:
 			_container_panel.close()  # only ONE panel (craft OR container) open at a time -- opening one closes the other
-			_craft_menu.open(_player.character(), _player.inventory, tags, _craft_stores())
+			# Derive the tag->level map fresh at open (the tier gate needs LEVELS, not just the request's tags).
+			var open_levels: Dictionary = Station.levels_in_range(_player.global_position, Station.DEFAULT_REACH)
+			_craft_menu.open(_player.character(), _player.inventory, open_levels, _craft_stores())
 		return
 	if _craft_menu.is_open:
-		var live_tags: Array[StringName] = Station.tags_in_range(_player.global_position, Station.DEFAULT_REACH)
-		if live_tags.is_empty():
+		var live_levels: Dictionary = Station.levels_in_range(_player.global_position, Station.DEFAULT_REACH)
+		if live_levels.is_empty():
 			_craft_menu.close()
 		else:
 			_craft_menu.set_extra_stores(_craft_stores())  # refresh chest sources first (no repaint)...
-			_craft_menu.set_tags(live_tags)                 # ...then set_tags repaints once with both fresh
+			_craft_menu.set_levels(live_levels)             # ...then set_levels repaints once with both fresh
 
 
 ## The in-range container STORES the open craft menu may source inputs from (Epic 2 Part 3.1 craft-from-storage):

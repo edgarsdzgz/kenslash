@@ -102,7 +102,7 @@ func _storage_makes_craftable(ctx: TestContext) -> void:
 	# With the container summed in: the fiber is available -> craftable.
 	var stores: Array[Inventory] = [chest]
 	var storage_has: bool = craft.has_materials_for(r, inv, stores)
-	var storage_would: bool = craft.would_craft(FLINT, sheet, inv, [], stores)
+	var storage_would: bool = craft.would_craft(FLINT, sheet, inv, {}, stores)
 	ctx.check(not alone_has and not alone_would and storage_has and storage_would,
 		"a recipe UNCRAFTABLE from inventory alone (fiber missing) becomes craftable when a container holds the shortfall -- has_materials_for + would_craft both reflect storage",
 		"storage-availability wrong (alone_has=%s, alone_would=%s, storage_has=%s, storage_would=%s)" % [str(alone_has), str(alone_would), str(storage_has), str(storage_would)])
@@ -127,7 +127,7 @@ func _exact_split_personal_first(ctx: TestContext) -> void:
 	chest.add_item(FIBER, 5)               # container: the surplus
 	var craft: Crafting = Crafting.new()
 
-	var ok: bool = craft.craft(SPIN, sheet, inv, [], [chest] as Array[Inventory])
+	var ok: bool = craft.craft(SPIN, sheet, inv, {}, [chest] as Array[Inventory])
 	ctx.check(ok and inv.count_of(FIBER) == 0 and chest.count_of(FIBER) == 4 and inv.count_of(CORD) == 1,
 		"exact split, PERSONAL FIRST: SPIN (fiber x3) drains the inventory to 0 (took 2) then takes ONLY the remaining 1 from the chest (5 -> 4); the cord output lands in the inventory",
 		"cross-store split wrong (ok=%s, inv_fiber=%d, chest_fiber=%d, cord=%d)" % [str(ok), inv.count_of(FIBER), chest.count_of(FIBER), inv.count_of(CORD)])
@@ -154,7 +154,7 @@ func _two_chest_split_drain(ctx: TestContext) -> void:
 
 	var stores: Array[Inventory] = [chest1, chest2]
 	var can: bool = craft.has_materials_for(r, inv, stores)
-	var ok: bool = craft.craft(SPIN, sheet, inv, [], stores)
+	var ok: bool = craft.craft(SPIN, sheet, inv, {}, stores)
 	ctx.check(can and ok and inv.count_of(FIBER) == 0 and chest1.count_of(FIBER) == 0
 			and chest2.count_of(FIBER) == 1 and inv.count_of(CORD) == 1,
 		"N=2 stores, SAME item across BOTH chests: SPIN (fiber x3, more than EITHER chest's 2) is craftable via the aggregate, drains personal (0) then chest1 to EMPTY (2 -> 0) then only the remaining 1 from chest2 (2 -> 1); chest2 surplus EXACT, cord in the inventory, nothing lost/duplicated",
@@ -185,8 +185,8 @@ func _dedup_alias_guard(ctx: TestContext) -> void:
 
 	var dup_stores: Array[Inventory] = [chest, chest]  # SAME ref twice
 	var can: bool = craft.has_materials_for(r, inv, dup_stores)
-	var would: bool = craft.would_craft(FLINT, sheet, inv, [], dup_stores)
-	var ok: bool = craft.craft(FLINT, sheet, inv, [], dup_stores)
+	var would: bool = craft.would_craft(FLINT, sheet, inv, {}, dup_stores)
+	var ok: bool = craft.craft(FLINT, sheet, inv, {}, dup_stores)
 	ctx.check(not can and not would and not ok and chest.count_of(STONE) == 1
 			and inv.count_of(FIBER) == 1 and inv.count_of(CORD) == 0,
 		"DEDUP guard: the SAME chest passed twice (holds 1 stone, FLINT needs 2) is de-duplicated -- has_materials_for + would_craft report NOT craftable (no phantom aggregate) and craft refuses consuming nothing (chest stone 1, inv fiber 1, no cord)",
@@ -200,8 +200,8 @@ func _dedup_alias_guard(ctx: TestContext) -> void:
 	var craft2: Crafting = Crafting.new()
 	var alias_stores: Array[Inventory] = [inv2]       # the inventory ALIASED as its own extra store
 	var can2: bool = craft2.has_materials_for(sheet2.known_recipes.recipe(SPIN), inv2, alias_stores)
-	var would2: bool = craft2.would_craft(SPIN, sheet2, inv2, [], alias_stores)
-	var ok2: bool = craft2.craft(SPIN, sheet2, inv2, [], alias_stores)
+	var would2: bool = craft2.would_craft(SPIN, sheet2, inv2, {}, alias_stores)
+	var ok2: bool = craft2.craft(SPIN, sheet2, inv2, {}, alias_stores)
 	ctx.check(not can2 and not would2 and not ok2 and inv2.count_of(FIBER) == 2 and inv2.count_of(CORD) == 0,
 		"ALIAS guard: passing the player inventory itself as an extra_store is dropped -- SPIN (fiber x3) is NOT craftable on 2 personal fiber (no double-count to 4) and craft refuses with no double-drain (fiber stays 2, no cord)",
 		"inventory-alias guard failed (can=%s, would=%s, ok=%s, inv_fiber=%d, cord=%d)" % [str(can2), str(would2), str(ok2), inv2.count_of(FIBER), inv2.count_of(CORD)])
@@ -222,7 +222,7 @@ func _insufficient_all_sources_atomic(ctx: TestContext) -> void:
 
 	var stores: Array[Inventory] = [chest]
 	var can: bool = craft.has_materials_for(sheet.known_recipes.recipe(SPIN), inv, stores)
-	var ok: bool = craft.craft(SPIN, sheet, inv, [], stores)
+	var ok: bool = craft.craft(SPIN, sheet, inv, {}, stores)
 	ctx.check(not can and not ok and inv.count_of(FIBER) == 1 and chest.count_of(FIBER) == 1 and inv.count_of(CORD) == 0,
 		"insufficient ACROSS ALL sources (inv 1 + chest 1 < 3): refuses with NO consumption from inventory OR chest -- both stay 1, no cord (atomic multi-store)",
 		"multi-store shortfall was not atomic (can=%s, ok=%s, inv_fiber=%d, chest_fiber=%d, cord=%d)" % [str(can), str(ok), inv.count_of(FIBER), chest.count_of(FIBER), inv.count_of(CORD)])
@@ -247,10 +247,10 @@ func _multi_store_output_overflow_atomic(ctx: TestContext) -> void:
 
 	var stores: Array[Inventory] = [chest]
 	# would_craft first: it must report false AND leave the chest byte-identical (dry-run rolled it back).
-	var would: bool = craft.would_craft(SPIN, sheet, inv, [], stores)
+	var would: bool = craft.would_craft(SPIN, sheet, inv, {}, stores)
 	var chest_after_dry: int = chest.count_of(FIBER)
 	# craft(): the overflow rollback must restore the chest the consume already drained.
-	var ok: bool = craft.craft(SPIN, sheet, inv, [], stores)
+	var ok: bool = craft.craft(SPIN, sheet, inv, {}, stores)
 	ctx.check(not would and not ok and chest_after_dry == 5 and chest.count_of(FIBER) == 5
 			and inv.count_of(CORD) == 0 and inv.item_at(0) == STICK and inv.count_at(0) == 1,
 		"multi-store OUTPUT-OVERFLOW rolls back EVERY store: the cord cannot fit -> refuse, and the chest the consume already drained is RESTORED byte-identical (fiber stays 5, no cord, bystander stick intact) -- would_craft agrees",
@@ -278,10 +278,10 @@ func _menu_lights_up_from_chest(ctx: TestContext) -> void:
 	await ctx.tree.physics_frame
 
 	# Open WITHOUT the chest store -> not craftable (inventory alone is short).
-	menu.open(sheet, inv, [] as Array[StringName])
+	menu.open(sheet, inv, {})
 	var without: bool = menu.is_craftable(SPIN)
 	# Open WITH the chest store -> lights up.
-	menu.open(sheet, inv, [] as Array[StringName], [chest.store] as Array[Inventory])
+	menu.open(sheet, inv, {}, [chest.store] as Array[Inventory])
 	var with_store: bool = menu.is_craftable(SPIN)
 	ctx.check(not without and with_store,
 		"the CraftMenu lights up from a chest: SPIN is NOT craftable on inventory alone (1 fiber) but IS once the container store is routed into open()",

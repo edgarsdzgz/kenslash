@@ -12,7 +12,7 @@ class_name TestCoreLoop extends RefCounted
 ##   c. MINE the ore -- the shipped pickaxe mines the ore_rock OUT for iron_ore x3, COLLECTED into the player's
 ##      own inventory through the pickup facade; a stick is placed alongside;
 ##   d. GATED CRAFT -- with the mats in hand the craft still REFUSES with no forge in range (a real Station +
-##      the real tags_in_range scan return []), then a forge Station placed in range makes it CRAFT (ore x3 +
+##      the real levels_in_range scan return {}), then a forge Station placed in range makes it CRAFT (ore x3 +
 ##      stick x1 -> iron_sword; ore + stick consumed);
 ##   e. STRONGER + EQUIPPED -- the crafted iron_sword equips at the SAME Inventory.equipped_tool() seam and its
 ##      live Sword-Hitbox atk (10) EXCEEDS the starting sword (6);
@@ -222,7 +222,7 @@ func _mine_ore_into_inventory(ctx: TestContext, holder: Node2D, player: Player) 
 
 
 ## STEP d -- the CRAFT gate genuinely blocks: even learned + with the mats in hand, forge_iron_sword refuses to
-## craft while NO forge is in range (a real Station + the real tags_in_range scan return []); a forge Station
+## craft while NO forge is in range (a real Station + the real levels_in_range scan return {}); a forge Station
 ## placed in range makes it craft (ore x3 + stick x1 -> iron_sword; inputs consumed). Real Station -> real scan
 ## -> real Crafting.craft, the whole Part 4.1 + 3.2 path.
 func _gated_craft(ctx: TestContext, holder: Node2D, player: Player) -> void:
@@ -231,24 +231,24 @@ func _gated_craft(ctx: TestContext, holder: Node2D, player: Player) -> void:
 
 	# STATION gate -- no forge placed yet: the scan around the player finds nothing, so the craft refuses,
 	# consuming NOTHING (ore stays 3, stick stays 1, no sword).
-	var no_forge_tags: Array[StringName] = Station.tags_in_range(player.global_position, Station.DEFAULT_REACH)
-	var no_forge: bool = craft.craft(FORGE, player.character(), inv, no_forge_tags)
-	ctx.check(no_forge_tags.is_empty() and not no_forge and inv.count_of(IRON_ORE) == 3
+	var no_forge_levels: Dictionary = Station.levels_in_range(player.global_position, Station.DEFAULT_REACH)
+	var no_forge: bool = craft.craft(FORGE, player.character(), inv, no_forge_levels)
+	ctx.check(no_forge_levels.is_empty() and not no_forge and inv.count_of(IRON_ORE) == 3
 			and inv.count_of(STICK) == 1 and inv.count_of(IRON_SWORD) == 0,
-		"forge_iron_sword REFUSES to craft with no forge in range (scan []) -- ore stays 3, stick stays 1, no sword",
-		"station-gated weapon crafted with no forge (tags %s, ok %s, ore %d, stick %d, sword %d)" % [str(no_forge_tags), str(no_forge), inv.count_of(IRON_ORE), inv.count_of(STICK), inv.count_of(IRON_SWORD)])
+		"forge_iron_sword REFUSES to craft with no forge in range (scan {}) -- ore stays 3, stick stays 1, no sword",
+		"station-gated weapon crafted with no forge (levels %s, ok %s, ore %d, stick %d, sword %d)" % [str(no_forge_levels), str(no_forge), inv.count_of(IRON_ORE), inv.count_of(STICK), inv.count_of(IRON_SWORD)])
 
 	# Place a real forge Station in range, re-scan, and craft: ore 3 -> 0, stick 1 -> 0, iron_sword 0 -> 1.
 	var station: Station = STATION_SCENE.instantiate() as Station
 	station.station_tag = &"forge"
 	holder.add_child(station)
 	station.global_position = HOME + Vector2(40.0, 0.0)   # within DEFAULT_REACH of the player at HOME
-	var forge_tags: Array[StringName] = Station.tags_in_range(player.global_position, Station.DEFAULT_REACH)
-	var forged: bool = craft.craft(FORGE, player.character(), inv, forge_tags)
-	ctx.check(forge_tags == [&"forge"] and forged and inv.count_of(IRON_ORE) == 0
+	var forge_levels: Dictionary = Station.levels_in_range(player.global_position, Station.DEFAULT_REACH)
+	var forged: bool = craft.craft(FORGE, player.character(), inv, forge_levels)
+	ctx.check(forge_levels == {&"forge": 1} and forged and inv.count_of(IRON_ORE) == 0
 			and inv.count_of(STICK) == 0 and inv.count_of(IRON_SWORD) == 1,
-		"a forge Station in range (scan [forge]) makes forge_iron_sword CRAFT: ore 3 -> 0, stick 1 -> 0, iron_sword 0 -> 1",
-		"forge_iron_sword did not craft with a forge present (tags %s, ok %s, ore %d, stick %d, sword %d)" % [str(forge_tags), str(forged), inv.count_of(IRON_ORE), inv.count_of(STICK), inv.count_of(IRON_SWORD)])
+		"a forge Station in range (scan {forge: 1}) makes forge_iron_sword CRAFT: ore 3 -> 0, stick 1 -> 0, iron_sword 0 -> 1",
+		"forge_iron_sword did not craft with a forge present (levels %s, ok %s, ore %d, stick %d, sword %d)" % [str(forge_levels), str(forged), inv.count_of(IRON_ORE), inv.count_of(STICK), inv.count_of(IRON_SWORD)])
 
 
 ## STEP e -- the crafted iron_sword EQUIPS at the SAME Inventory.equipped_tool() seam the starting tools use,
