@@ -58,6 +58,12 @@ const STATION_SCENE: PackedScene = preload("res://world/station.tscn")
 ## Kind to this scene, spawn() instances it and calls apply_state() from the entry's state before add_child. Part
 ## 2.1 round-trips an EMPTY container (identity only); its contents (Part 2.2) will ride the same state Dictionary.
 const CONTAINER_SCENE: PackedScene = preload("res://world/container.tscn")
+## The station ADD-ON scene (Epic 2 Phase 4 Part 4.1 -- Windrose leveling). The THIRD ADDITION delta, spawned
+## identically to a STATION/CONTAINER through the kind-agnostic placeable contract (world/placeable.gd):
+## _addition_scene() maps the entry's Kind to this scene, spawn() instances it and calls apply_state() (a no-op --
+## an add-on carries no params) before add_child. On reload it re-joins the "station_addon" group so every nearby
+## Station's level() recomputes; nothing level-specific is persisted (the add-on IS the persisted delta).
+const ADDON_SCENE: PackedScene = preload("res://world/station_addon.tscn")
 
 ## Hardness of a streamed mineral. The soft, mineable-with-the-pickaxe stone (matches
 ## world/rock.tscn's default): over = 6 - pickaxe.power 7 <= 0 -> Band A, so it chips.
@@ -152,8 +158,8 @@ static func spawn(entry: Dictionary) -> Node2D:
 			var b_state: Dictionary = entry["state"]
 			boulder.size = int(b_state.get("size", Boulder.Size.ROCK))
 			node = boulder
-		ChunkData.Kind.STATION, ChunkData.Kind.CONTAINER:
-			# A placed ADDITION delta (Epic 2 -- Station or storage Container), re-created KIND-AGNOSTICALLY
+		ChunkData.Kind.STATION, ChunkData.Kind.CONTAINER, ChunkData.Kind.ADDON:
+			# A placed ADDITION delta (Epic 2 -- Station, storage Container, or station Add-on), re-created KIND-AGNOSTICALLY
 			# through the placeable contract (world/placeable.gd): map the Kind to its scene, instance it, and
 			# apply_state() the entry's recorded params BEFORE the caller add_child()s it -- so _ready() joins
 			# the right group already configured (a Station carrying its station_tag). The same pre-add configure
@@ -238,8 +244,8 @@ static func capture(node: Node, entry: Dictionary) -> bool:
 			# there is NO durable delta to write back and it is never `gone` -- it respawns byte-identically
 			# from the deterministic baseline every reload. So capture is always a no-op here.
 			return false
-		ChunkData.Kind.STATION, ChunkData.Kind.CONTAINER:
-			# A placed ADDITION (Epic 2 -- Station or storage Container) carries NO durable per-node delta
+		ChunkData.Kind.STATION, ChunkData.Kind.CONTAINER, ChunkData.Kind.ADDON:
+			# A placed ADDITION (Epic 2 -- Station, storage Container, or station Add-on) carries NO durable per-node delta
 			# captured HERE: the ChunkManager SKIPS every addition kind in its paired loop (ChunkData.
 			# is_addition_kind), so this branch is never reached from deactivate -- it is defensive symmetry
 			# with the other permanent Kinds. A Station's params live on the entry from register_placement and
@@ -282,6 +288,8 @@ static func _addition_scene(kind: int) -> PackedScene:
 			return STATION_SCENE
 		ChunkData.Kind.CONTAINER:
 			return CONTAINER_SCENE
+		ChunkData.Kind.ADDON:
+			return ADDON_SCENE
 		_:
 			return null
 

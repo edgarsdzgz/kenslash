@@ -37,7 +37,14 @@ extends RefCounted
 ## on reload -- identical persistence to STATION, differing only in the entity it re-creates. It is an ADDITION
 ## kind (see is_addition_kind): the deactivate paired-loop SKIPS it (permanent, never `gone`-flagged) exactly as
 ## it skips STATION, and it touches ZERO generator rng. Appended LAST -- existing values are NEVER renumbered.
-enum Kind { TREE, MINERAL, ENEMY, DROP, BUSH, PEBBLE, BOULDER, STATION, CONTAINER }
+## ADDON (Epic 2 Phase 4 Part 4.1 -- Windrose station-leveling) is the THIRD ADDITION delta: a placed station
+## ADD-ON (world/station_addon.gd) recorded via ChunkManager.register_placement, re-spawned by ChunkContent.spawn()
+## on reload through the SAME kind-agnostic placeable contract as STATION/CONTAINER. It carries NO extra params
+## (pure identity: kind + position) -- a Station derives its level() from the COUNT of add-ons within reach, so
+## the level RECOMPUTES from the add-ons that persist and NOTHING level-specific is stored. Like the other
+## additions the deactivate loop SKIPS it (permanent, never `gone`-flagged) and it touches ZERO generator rng.
+## Appended LAST -- existing values are NEVER renumbered.
+enum Kind { TREE, MINERAL, ENEMY, DROP, BUSH, PEBBLE, BOULDER, STATION, CONTAINER, ADDON }
 
 ## The ADDITION kinds -- pure PLACEMENT deltas the player pushes into the store via ChunkManager.register_placement
 ## (never emitted by ChunkGenerator, never drawn from its rng). They share ONE kind-agnostic path: spawn() re-creates
@@ -46,7 +53,7 @@ enum Kind { TREE, MINERAL, ENEMY, DROP, BUSH, PEBBLE, BOULDER, STATION, CONTAINE
 ## chunk was already active sits at an index BEYOND _content). DROP is a delta too but is NOT listed here: it has its
 ## OWN rebuild-from-live-children path in ChunkManager, distinct from the placeable-contract spawn additions share.
 ## Append a new placement Kind here the moment it is added, so the skip predicate covers it without a code change.
-const ADDITION_KINDS: Array[int] = [Kind.STATION, Kind.CONTAINER]
+const ADDITION_KINDS: Array[int] = [Kind.STATION, Kind.CONTAINER, Kind.ADDON]
 
 
 ## True iff `kind` is an ADDITION-delta placement kind (STATION / CONTAINER / future) -- the single predicate the

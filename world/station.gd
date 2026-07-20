@@ -33,7 +33,13 @@ const GROUP: StringName = &"station"
 ## as the tags_in_range radius. Two tiles (components/world_scale.gd TILE 40) -- a touch more generous than the
 ## one-tile harvest reach (components/interaction.gd) because you craft standing BESIDE a workbench, not on top
 ## of it. tags_in_range takes the radius explicitly, so this is only a shared default, never a hidden constant.
+## DOUBLES as the LEVELING reach: level() counts the add-ons within DEFAULT_REACH of the station (Part 4.1).
 const DEFAULT_REACH: float = WorldScale.TILE * 2.0
+
+## The maximum number of ADD-ONS that can raise a station's level -- the LEVEL CAP (plan-epic2-parts.md Part 4.1
+## "raises the level, capped"). With 2, a station tops out at level 3 (base 1 + up to 2 add-ons in reach); a 3rd
+## add-on within reach adds nothing. Authored here so the cap and the derivation live in ONE place (level() below).
+const MAX_ADDON_LEVELS: int = 2
 
 ## Which crafting station this is -- the tag a station-gated recipe must MATCH to craft in range (RecipeData
 ## station_tag, e.g. &"forge"). Authored on the scene / set by a streamer/placer before add_child. "" would make
@@ -94,5 +100,41 @@ static func tags_in_range(world_pos: Vector2, radius: float) -> Array[StringName
 		if world_pos.distance_to(st.global_position) <= radius and not out.has(st.station_tag):
 			out.append(st.station_tag)
 	return out
+
+
+## This station's LEVEL (plan-epic2-parts.md Phase 4 Part 4.1 -- "Windrose" proximity leveling). A station starts
+## at level 1 and rises by 1 for each StationAddon within DEFAULT_REACH, CAPPED at MAX_ADDON_LEVELS extra levels:
+##   level = 1 + min(add-ons in reach, MAX_ADDON_LEVELS)
+## DERIVED, never stored -- it recomputes from the add-ons in range every call, so an add-on placed/removed near
+## the station is reflected immediately AND nothing level-specific has to persist (the add-ons persist as deltas,
+## the level recomputes on reload). Pure integer count over a distance scan (no Time/OS/RNG), so it is exactly
+## headless-assertable and deterministic. Reads the add-on group via the STATIC addons_in_range below, so a caller
+## with only a Station reference (Part 4.2's tier gate) gets the level with no extra wiring.
+func level() -> int:
+	return 1 + mini(Station.addons_in_range(global_position, DEFAULT_REACH), MAX_ADDON_LEVELS)
+
+
+## COUNT the StationAddon placeables within `radius` of `world_pos` -- the pure-logic add-on scan level() derives a
+## station's level from. STATIC + decoupled, the add-on analogue of tags_in_range (and the same group-within-radius
+## idiom as components/interaction.gd's containers_in_range): a deterministic <= radius distance compare over the
+## "station_addon" group (StationAddon.GROUP), reading the active SceneTree via Engine.get_main_loop() (a fixed
+## engine handle, no Time/OS/RNG) so no tree/player argument is threaded through. Skips freed/queued nodes
+## (is_instance_valid guard) so a just-removed add-on never counts. Returns 0 when none are in reach. It returns the
+## RAW count (uncapped) -- level() applies MAX_ADDON_LEVELS -- so a caller that wants the true nearby-add-on count
+## (e.g. a test, or a future UI) reads it un-clamped here.
+static func addons_in_range(world_pos: Vector2, radius: float) -> int:
+	var count: int = 0
+	var loop: SceneTree = Engine.get_main_loop() as SceneTree
+	if loop == null:
+		return count
+	for node in loop.get_nodes_in_group(StationAddon.GROUP):
+		if not (node is StationAddon):
+			continue
+		var addon: StationAddon = node as StationAddon
+		if not is_instance_valid(addon) or addon.is_queued_for_deletion():
+			continue
+		if world_pos.distance_to(addon.global_position) <= radius:
+			count += 1
+	return count
 
 # Verified against: Godot 4.7.1 (2026-07-20)

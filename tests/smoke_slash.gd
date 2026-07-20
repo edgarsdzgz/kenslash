@@ -145,6 +145,9 @@ func _run() -> void:
 	# --- Craft-from-storage EPIC 2 Part 3.1: craft sources inputs from inventory + in-range containers, stable personal-first consume, atomic across all stores + menu/HUD end to end (self-contained, remote) ---
 	await TestCraftFromStorage.new().run(ctx)
 
+	# --- Station leveling EPIC 2 Part 4.1: add-on placeable raises a station's level (capped), rides the kind-agnostic delta path + persists (self-contained, remote) ---
+	await TestStationLeveling.new().run(ctx)
+
 	# --- Boulder terrain Environment #2 (self-contained: own holders/players/boulders + ChunkManager) ---
 	await TestBoulder.new().run(ctx)
 
