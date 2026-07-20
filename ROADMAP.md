@@ -35,11 +35,21 @@ OPEN (user's call, not blocking): early-currency balance -- the first weapon spe
 level-1->3 talent + blueprint banks (heavy_hitter 2 talent + recipe 2 blueprint). Tune or keep as the
 single early-game goal.
 
-## EPIC 2 -- Base Building & Storage   (needs Epic 1)
+## EPIC 2 -- Base Building & Storage   [COMPLETE 2026-07-20]  -> plan-epic2-parts.md
 Placeable crafting stations; storage/containers; craft-from-storage (Enshrouded's lesson); Windrose-style
 PROXIMITY station-leveling (craft + place add-ons near a station to level it -> base grows campfire ->
 workshop). The "building" pillar Track B feeds.
-Done: a player can build out a functional, upgradeable base and craft from nearby storage.
+DONE: the SYSTEMS are complete + persistent -- suite 537 -> 657 PASS / 0 FAIL, 4 phases (each headless-
+verified, adversarially reviewed, committed + pushed):
+- P1 placeable stations + persistence as world-delta ADDITIONS (generator kept byte-identical).
+- P2 storage containers (place + atomic transfer + contents persistence + 'f' panel), via a kind-agnostic
+  Placeable contract (STATION/CONTAINER/ADDON share one persistence route).
+- P3 craft-from-storage (multi-store atomic craft, personal-first, unconditional dedup guard).
+- P4 proximity station-leveling (add-ons -> derived station level -> recipe TIER gate).
+LOOSE END (tracked, NOT blocking the systems): the build loop is HEADLESS-ONLY -- placement is reachable
+only via place()/tests; there is no in-game build mode / ghost / key-bind yet. A player-facing build-UX
+slice is needed before a real playthrough (schedule pre-Epic-3 or Epic 9); it must generalize placement to
+a kind/tag param across the 3 placeable kinds. See NOTES.md deferred section.
 
 ## EPIC 3 -- Persistence & Save = Reprint/Transmission   (needs Epic 1-2)  -> design-lore.md
 The SP save system, diegetic: memory-transmission autosave on the deterministic game-tick; reprint
