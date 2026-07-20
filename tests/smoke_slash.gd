@@ -133,6 +133,9 @@ func _run() -> void:
 	# --- Builder EPIC 2 Part 1.1: place a Station into the world for a build-material cost, atomic + gate-satisfying (self-contained, remote) ---
 	await TestBuilder.new().run(ctx)
 
+	# --- Placement persistence EPIC 2 Part 1.2: a placed Station survives chunk unload/reload as an ADDITION delta (self-contained, remote) ---
+	await TestPlacementPersist.new().run(ctx)
+
 	# --- Boulder terrain Environment #2 (self-contained: own holders/players/boulders + ChunkManager) ---
 	await TestBoulder.new().run(ctx)
 
@@ -176,7 +179,7 @@ func _run() -> void:
 	await TestCoreLoop.new().run(ctx)
 
 	if ctx.all_pass:
-		print("[PASS] smoke_slash: combat + combo + death + bodies + input seam + durability + streaming + playable + hud + encumbrance + harvest + pickup + lifetime + drop-persist + forage + pebble + controls + elevation + boulder + tank + swordsman + charger + spitter + progression + talents + recipes + crafting + station + craft-menu + builder + core-loop -- all passed")
+		print("[PASS] smoke_slash: combat + combo + death + bodies + input seam + durability + streaming + playable + hud + encumbrance + harvest + pickup + lifetime + drop-persist + forage + pebble + controls + elevation + boulder + tank + swordsman + charger + spitter + progression + talents + recipes + crafting + station + craft-menu + builder + placement-persist + core-loop -- all passed")
 		quit(0)
 	else:
 		_fail("one or more assertions failed")

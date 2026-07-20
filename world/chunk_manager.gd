@@ -142,6 +142,16 @@ func _deactivate_chunk(coord: Vector2i) -> void:
 		var entry: Dictionary = data.entries[i]
 		if int(entry["type"]) == ChunkData.Kind.DROP:
 			continue  # drops are rebuilt from live nodes below, NOT captured per-index here
+		if int(entry["type"]) == ChunkData.Kind.STATION:
+			# A placed STATION (Epic 2 Part 1.2) is a permanent ADDITION delta: it persists AS-IS across
+			# unload/reload and is NEVER `gone`-flagged. Skip it here for two reasons. (1) Its params
+			# (station_tag) already live on the entry from register_placement and never mutate, so there is
+			# nothing to capture. (2) An addition registered while the chunk was ALREADY active was appended
+			# to data.entries AFTER _content was built, so its index sits BEYOND nodes.size() -- without this
+			# skip the `i >= nodes.size()` guard below would wrongly gone-flag it. The live station node is a
+			# child of the container (spawned by Builder when active, or by spawn() on reload), so it is freed
+			# with the container and re-created from THIS entry on the next activation -- no orphan, no double.
+			continue
 		var state: Dictionary = entry["state"]
 		if bool(state.get("gone", false)):
 			continue  # already gone -- nothing live to capture
@@ -185,6 +195,32 @@ func _deactivate_chunk(coord: Vector2i) -> void:
 	container.queue_free()
 
 
+## Register a placed object as a persistent ADDITION delta on the chunk that OWNS `world_pos` (Epic 2
+## Part 1.2). The mirror of the DROP write-back, but PUSHED by the build path instead of swept on unload:
+## compute the owning coord + the position LOCAL to that chunk, ensure the coord's ChunkData exists in the
+## store (generate + retain the deterministic baseline if this is its first touch -- IDENTICAL to what
+## _activate_chunk would do, so the baseline is unshifted), then APPEND a Kind.STATION entry carrying the
+## local_pos + a DEEP COPY of `params` (station_tag, ...). It records the DELTA only -- it does NOT spawn:
+## when the chunk is active the live Station was already added by Builder (streamed-world flow); when the
+## chunk later reactivates, _activate_chunk's spawn() re-creates it from THIS entry. Touches ZERO generator
+## rng (an explicit delta, never a draw), so every per-Kind count stays byte-identical. Flags the chunk
+## dirty (a delta chunk, the future save trigger). `params` is duplicated so the caller cannot alias the
+## stored state. The local_pos matches the container-child convention every other Kind uses (the container
+## sits at chunk_origin), so a station placed at world_pos re-spawns at exactly world_pos on reload.
+func register_placement(world_pos: Vector2, params: Dictionary) -> void:
+	var coord: Vector2i = WorldScale.world_to_chunk(world_pos)
+	var data: ChunkData = _store.get(coord) as ChunkData
+	if data == null:
+		data = ChunkGenerator.generate(coord, world_seed)
+		_store[coord] = data
+	data.entries.append({
+		"type": ChunkData.Kind.STATION,
+		"local_pos": world_pos - WorldScale.chunk_origin(coord),
+		"state": params.duplicate(true),
+	})
+	data.dirty = true
+
+
 ## Number of chunks currently active (live containers). Bounded by (2*load_radius+1)^2.
 func active_chunk_count() -> int:
 	return _active.size()
@@ -222,4 +258,4 @@ func stored_data(coord: Vector2i) -> ChunkData:
 func stored_chunk_count() -> int:
 	return _store.size()
 
-# Verified against: Godot 4.7.1 (2026-07-17)
+# Verified against: Godot 4.7.1 (2026-07-20)

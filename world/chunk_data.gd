@@ -26,7 +26,13 @@ extends RefCounted
 ## solid StaticBody2D that blocks movement and divides areas. Unlike a Rock it can NEVER be destroyed
 ## (no Hurtbox/durability/drops), so it is PERMANENT: it carries no `gone` path and simply respawns
 ## byte-identically every reload. Appended LAST -- existing values are NEVER renumbered.
-enum Kind { TREE, MINERAL, ENEMY, DROP, BUSH, PEBBLE, BOULDER }
+## STATION (Epic 2 Part 1.2) is a pure ADDITION delta, the mirror of DROP: ChunkGenerator NEVER emits one --
+## a placed crafting Station (world/station.gd) becomes a STATION entry only when the streamed-world build
+## path records it via ChunkManager.register_placement, keyed to the chunk that owns its world position. So a
+## placement is cheap serializable DATA when dormant (kind + local_pos + params: station_tag), re-spawned by
+## ChunkContent.spawn() on reload -- baseline reproduced IDENTICALLY, PLUS the recorded additions. It touches
+## ZERO generator rng (explicit delta, not a draw). Appended LAST -- existing values are NEVER renumbered.
+enum Kind { TREE, MINERAL, ENEMY, DROP, BUSH, PEBBLE, BOULDER, STATION }
 
 ## The concrete TYPE a Kind.ENEMY entry spawns as (encounter variety). Kept as ONE Kind.ENEMY (the
 ## census + hp-capture stay ENEMY-based); the specific roster type rides in the entry's `state` as a
@@ -94,4 +100,4 @@ static func from_dict(d: Dictionary) -> ChunkData:
 		})
 	return cd
 
-# Verified against: Godot 4.7.1 (2026-07-19)
+# Verified against: Godot 4.7.1 (2026-07-20)

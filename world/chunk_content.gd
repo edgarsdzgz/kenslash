@@ -47,6 +47,12 @@ const DROP_SCENE: PackedScene = preload("res://world/drop.tscn")
 ## or `gone`-flagged -- it simply respawns byte-identically every reload. Its coarse SIZE (rock/hill/
 ## mountain) rides in the entry's state["size"] and is applied at spawn, like the mineral's integrity.
 const BOULDER_SCENE: PackedScene = preload("res://world/boulder.tscn")
+## The crafting STATION scene (Epic 2 Part 1.2). Unlike the generated Kinds above, a STATION is a pure
+## ADDITION delta -- never generated, recorded by ChunkManager.register_placement when the streamed-world
+## build path (components/builder.gd) places one -- so it respawns here on reload EXACTLY like a DROP does,
+## its station_tag re-applied from the entry's state before add_child so it re-joins the "station" group and
+## gates crafting again. Its `state` carries ONLY serializable params (station_tag as a plain String), no Node.
+const STATION_SCENE: PackedScene = preload("res://world/station.tscn")
 
 ## Hardness of a streamed mineral. The soft, mineable-with-the-pickaxe stone (matches
 ## world/rock.tscn's default): over = 6 - pickaxe.power 7 <= 0 -> Band A, so it chips.
@@ -141,6 +147,17 @@ static func spawn(entry: Dictionary) -> Node2D:
 			var b_state: Dictionary = entry["state"]
 			boulder.size = int(b_state.get("size", Boulder.Size.ROCK))
 			node = boulder
+		ChunkData.Kind.STATION:
+			# A placed crafting Station (Epic 2 Part 1.2 ADDITION delta): set its station_tag from the
+			# entry's state BEFORE the caller add_child()s it, so station.gd._ready() joins the "station"
+			# group already carrying the tag (the same pre-add configure the MINERAL/BOULDER cases use). The
+			# tag is stored as a plain String for serializability; StringName() converts it back. A missing
+			# tag falls back to the scene default (&"forge"). Positioned at local_pos by the caller like
+			# every other Kind, so a reloaded station lands at the exact world position it was placed.
+			var station: Station = STATION_SCENE.instantiate() as Station
+			var s_state: Dictionary = entry["state"]
+			station.station_tag = StringName(s_state.get("station_tag", "forge"))
+			node = station
 		_:
 			node = Node2D.new()
 
@@ -215,6 +232,13 @@ static func capture(node: Node, entry: Dictionary) -> bool:
 			# there is NO durable delta to write back and it is never `gone` -- it respawns byte-identically
 			# from the deterministic baseline every reload. So capture is always a no-op here.
 			return false
+		ChunkData.Kind.STATION:
+			# A placed Station (Epic 2 Part 1.2 addition) carries NO durable per-node delta here: its params
+			# (station_tag) live on the entry the moment it is registered and never mutate, and it is never
+			# `gone` -- a station is not harvested/destroyed. The ChunkManager likewise SKIPS STATION entries
+			# in its paired capture loop (they persist as-is, freed with the container, re-spawned on reload),
+			# so this branch is defensive symmetry with the other permanent Kinds. Always a no-op.
+			return false
 		_:
 			return false
 
@@ -237,4 +261,4 @@ static func drop_entry(drop: Drop) -> Dictionary:
 		},
 	}
 
-# Verified against: Godot 4.7.1 (2026-07-19)
+# Verified against: Godot 4.7.1 (2026-07-20)
